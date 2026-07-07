@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "bbs-fbx-addon",
+  "version": "${version}",
+  "name": "BBS Fbx Addon",
+  "description": "Fbx model compatibility for BBS FS",
+  "authors": [
+    "ElGatoPro300",
+    "Eleeter"
+  ],
+  "contact": {
+    "homepage": "https://discord.gg/MAHVQBSce6",
+    "sources": "https://github.com/ElGatoPro300/bbs-fbx-addon"
+  },
+  "license": "MIT",
+  "icon": "assets/bbs_fbx/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "bbs-addon": [
+      "elgatopro300.bbsfbx.BBSFbxAddon"
+    ]
+  },
+  "mixins": [
+    "bbs_fbx.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "~1.20.4",
+    "java": ">=17",
+    "bbs": ">=2.0.0"
+  }
+}
