@@ -105,15 +105,6 @@ public class FBXConverter
         float offsetX = 0;
         float offsetY = 0;
         float offsetZ = 0;
-        if (finalBounds.hasHorizontalBounds())
-        {
-            offsetX = -(finalBounds.minX + finalBounds.maxX) / 2.0f;
-            offsetZ = -(finalBounds.minZ + finalBounds.maxZ) / 2.0f;
-        }
-        if (finalBounds.minY != Float.MAX_VALUE && Math.abs(finalBounds.minY) > 0.001f)
-        {
-            offsetY = -finalBounds.minY;
-        }
 
         if (!skinnedBones.isEmpty())
         {
