@@ -77,6 +77,9 @@ public class FBXConverter
         BOBJArmature globalArmature = new BOBJArmature("Armature");
         armatures.put(globalArmature.name, globalArmature);
 
+        // The FBX node transform bakes a 100x scale (cm->m). This file reports
+        // UnitScaleFactor=0, so resolveMetadataScale can't cancel it. Undo the
+        // baked 100x with 0.01 so models load at true Blender size.
         float[] globalScale = {0.01f};
         Set<String> neededNodes = new HashSet<>();
 
@@ -93,8 +96,8 @@ public class FBXConverter
             globalArmature.addBone(root);
         }
 
-        Bounds finalBounds = computeBounds(scene, rootCorrection, globalScale[0], meshTransforms);
-
+        // No auto-centering, no auto-grounding, no height-normalization.
+        // Respect Blender's coordinates exactly.
         float offsetX = 0;
         float offsetY = 0;
         float offsetZ = 0;
@@ -110,7 +113,6 @@ public class FBXConverter
             AIMesh aiMesh = AIMesh.create(scene.mMeshes().get(i));
             processMesh(scene, aiMesh, i, vertices, textures, normals, meshes, globalArmature, globalScale[0], rootCorrection, offsetX, offsetY, offsetZ, meshTransforms);
         }
-
 
         for (Vertex vertex : vertices)
         {
