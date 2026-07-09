@@ -77,7 +77,7 @@ public class FBXConverter
         BOBJArmature globalArmature = new BOBJArmature("Armature");
         armatures.put(globalArmature.name, globalArmature);
 
-        float[] globalScale = {resolveMetadataScale(metadata)};
+        float[] globalScale = {0.01f};
         Set<String> neededNodes = new HashSet<>();
 
         if (!skinnedBones.isEmpty())
@@ -91,13 +91,6 @@ public class FBXConverter
         {
             BOBJBone root = new BOBJBone(0, "root", "", new Matrix4f());
             globalArmature.addBone(root);
-        }
-
-        Bounds initialBounds = computeBounds(scene, rootCorrection, globalScale[0], meshTransforms);
-        float initialHeight = initialBounds.height();
-        if (initialHeight > 0 && (initialHeight < MIN_REASONABLE_HEIGHT || initialHeight > MAX_REASONABLE_HEIGHT))
-        {
-            globalScale[0] *= TARGET_MODEL_HEIGHT / initialHeight;
         }
 
         Bounds finalBounds = computeBounds(scene, rootCorrection, globalScale[0], meshTransforms);
@@ -271,6 +264,7 @@ public class FBXConverter
      */
     private static void processMesh(AIScene scene, AIMesh aiMesh, int meshIndex, List<Vertex> vertices, List<Vector2d> textures, List<Vector3f> normals, List<BOBJMesh> meshes, BOBJArmature armature, float scaleFactor, Matrix4f rootCorrection, float offsetX, float offsetY, float offsetZ, Map<Integer, Matrix4f> meshTransforms)
     {
+
         FBXMesh mesh = new FBXMesh(aiMesh.mName().dataString());
         mesh.armatureName = armature.name;
         mesh.armature = armature;
@@ -557,7 +551,10 @@ public class FBXConverter
             Matrix4f meshTransform = meshTransforms.get(i);
             Matrix4f meshRotationScale = toRotationScale(meshTransform);
             boolean applyNodeTransform = aiMesh.mNumBones() == 0 && meshRotationScale != null;
+            System.err.println("[FBX] mesh=" + aiMesh.mName().dataString()
+                    + " meshTransform=" + (meshTransform == null ? "NULL" : meshTransform.toString()));
             AIVector3D.Buffer aiVertices = aiMesh.mVertices();
+
 
             while (aiVertices.remaining() > 0)
             {
