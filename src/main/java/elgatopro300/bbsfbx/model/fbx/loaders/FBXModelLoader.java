@@ -216,9 +216,9 @@ public class FBXModelLoader implements IModelLoader
             {
                 for (Link l : links)
                 {
-                String path = l.path.toLowerCase();
+                    String path = l.path.toLowerCase();
 
-                if (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg"))
+                    if (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg"))
                     {
                         textureLink = l;
                         break;
@@ -248,6 +248,10 @@ public class FBXModelLoader implements IModelLoader
                 if (materialTexture != null)
                 {
                     modelInstance.materialTextures.put(material, materialTexture);
+                }
+                else
+                {
+                    IModelLoader.ensureMaterialFolder(models.provider, model, material);
                 }
             }
 

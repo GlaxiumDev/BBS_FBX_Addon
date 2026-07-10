@@ -73,12 +73,15 @@ public class FBXConverter
         }
 
         FBXMetadata metadata = new FBXMetadata(scene);
+        dumpNodeTransforms(rootNode, "");
+
         Matrix4f rootCorrection = buildRootCorrection(metadata);
 
         Map<Integer, String> meshNodeNames = new HashMap<>();
         Map<Integer, Matrix4f> meshTransforms = collectMeshTransforms(rootNode, meshNodeNames);
 
         Map<String, AIBone> skinnedBones = new HashMap<>();
+        Map<String, Integer> skinnedBoneMeshIndex = new HashMap<>();
         int numMeshes = scene.mNumMeshes();
         for (int i = 0; i < numMeshes; i++)
         {
@@ -87,7 +90,21 @@ public class FBXConverter
             for (int j = 0; j < numBones; j++)
             {
                 AIBone aiBone = AIBone.create(aiMesh.mBones().get(j));
-                skinnedBones.putIfAbsent(aiBone.mName().dataString(), aiBone);
+                String boneName = aiBone.mName().dataString();
+                skinnedBones.putIfAbsent(boneName, aiBone);
+                skinnedBoneMeshIndex.putIfAbsent(boneName, i);
+            }
+        }
+
+        Map<String, Matrix4f> boneMeshRotations = new HashMap<>();
+        for (Map.Entry<String, Integer> entry : skinnedBoneMeshIndex.entrySet())
+        {
+            Matrix4f meshWorld = meshTransforms.get(entry.getValue());
+            if (meshWorld != null)
+            {
+                org.joml.Quaternionf rot = new org.joml.Quaternionf();
+                meshWorld.getUnnormalizedRotation(rot);
+                boneMeshRotations.put(entry.getKey(), new Matrix4f().rotation(rot));
             }
         }
 
@@ -137,7 +154,7 @@ public class FBXConverter
         if (!skinnedBones.isEmpty())
         {
             Matrix4f initialGlobal = new Matrix4f().translate(offsetX, offsetY, offsetZ);
-            processNodes(rootNode, "", initialGlobal, globalArmature, skinnedBones, neededNodes, globalScale, rootCorrection, offsetX, offsetY, offsetZ);
+            processNodes(rootNode, "", initialGlobal, globalArmature, skinnedBones, boneMeshRotations, neededNodes, globalScale, rootCorrection, offsetX, offsetY, offsetZ);
         }
 
         for (int i = 0; i < numMeshes; i++)
@@ -235,7 +252,7 @@ public class FBXConverter
     /**
      * Recursively processes nodes to build the bone hierarchy (skinned path).
      */
-    private static void processNodes(AINode node, String parentName, Matrix4f parentGlobal, BOBJArmature armature, Map<String, AIBone> skinnedBones, Set<String> neededNodes, float[] globalScale, Matrix4f rootCorrection, float offsetX, float offsetY, float offsetZ)
+    private static void processNodes(AINode node, String parentName, Matrix4f parentGlobal, BOBJArmature armature, Map<String, AIBone> skinnedBones, Map<String, Matrix4f> boneMeshRotations, Set<String> neededNodes, float[] globalScale, Matrix4f rootCorrection, float offsetX, float offsetY, float offsetZ)
     {
         String name = node.mName().dataString();
         Matrix4f local = toMatrix4f(node.mTransformation());
@@ -250,9 +267,15 @@ public class FBXConverter
             if (skinnedBones.containsKey(name))
             {
                 Matrix4f offset = toMatrix4f(skinnedBones.get(name).mOffsetMatrix());
-                Matrix4f invCorrection = new Matrix4f(rootCorrection).invert();
-                offset.mul(invCorrection);
-                boneMat = offset.invert();
+                Matrix4f boneWorld = offset.invert();
+
+                Matrix4f meshRotation = boneMeshRotations.get(name);
+                if (meshRotation != null)
+                {
+                    boneWorld = new Matrix4f(meshRotation).mul(boneWorld);
+                }
+
+                boneMat = new Matrix4f(rootCorrection).mul(boneWorld);
 
                 boneMat.m30(boneMat.m30() * globalScale[0]);
                 boneMat.m31(boneMat.m31() * globalScale[0]);
@@ -288,7 +311,7 @@ public class FBXConverter
         for (int i = 0; i < numChildren; i++)
         {
             AINode child = AINode.create(children.get(i));
-            processNodes(child, nextParent, global, armature, skinnedBones, neededNodes, globalScale, rootCorrection, offsetX, offsetY, offsetZ);
+            processNodes(child, nextParent, global, armature, skinnedBones, boneMeshRotations, neededNodes, globalScale, rootCorrection, offsetX, offsetY, offsetZ);
         }
     }
 
@@ -309,6 +332,13 @@ public class FBXConverter
         Matrix4f meshTransform = meshTransforms.get(meshIndex);
         boolean skinned = aiMesh.mNumBones() > 0;
         boolean applyNodeTransform = !skinned && meshTransform != null;
+        Matrix4f meshRotationOnly = null;
+        if (skinned && meshTransform != null)
+        {
+            org.joml.Quaternionf rot = new org.joml.Quaternionf();
+            meshTransform.getUnnormalizedRotation(rot);
+            meshRotationOnly = new Matrix4f().rotation(rot);
+        }
 
         int vertexBaseIndex = vertices.size();
         int textureBaseIndex = textures.size();
@@ -328,6 +358,11 @@ public class FBXConverter
                 // object's Blender position/pivot).
                 meshTransform.transformPosition(pos);
             }
+            else if (meshRotationOnly != null)
+            {
+                meshRotationOnly.transformPosition(pos);
+            }
+
 
             pos.mul(scaleFactor);
             rootCorrection.transformPosition(pos);
@@ -439,6 +474,18 @@ public class FBXConverter
         if (materialIndex >= 0 && materialIndex < scene.mNumMaterials())
         {
             AIMaterial material = AIMaterial.create(scene.mMaterials().get(materialIndex));
+
+            AIString nameStr = AIString.calloc();
+            if (Assimp.aiGetMaterialString(material, Assimp.AI_MATKEY_NAME, 0, 0, nameStr) == Assimp.aiReturn_SUCCESS)
+            {
+                String materialName = nameStr.dataString();
+                if (materialName != null && !materialName.isEmpty())
+                {
+                    mesh.name = materialName;
+                }
+            }
+            nameStr.free();
+
             AIString path = AIString.calloc();
 
             if (Assimp.aiGetMaterialTexture(material, Assimp.aiTextureType_DIFFUSE, 0, path, (IntBuffer) null, null, null, null, null, null) == Assimp.aiReturn_SUCCESS)
@@ -520,6 +567,26 @@ public class FBXConverter
         for (int i = 0; i < numChildren; i++)
         {
             collectMeshTransforms(AINode.create(children.get(i)), global, meshTransforms, meshNodeNames);
+        }
+    }
+
+    private static void dumpNodeTransforms(AINode node, String indent)
+    {
+        Matrix4f local = toMatrix4f(node.mTransformation());
+        Vector3f scale = new Vector3f();
+        local.getScale(scale);
+        org.joml.Quaternionf rot = new org.joml.Quaternionf();
+        local.getUnnormalizedRotation(rot);
+        Vector3f euler = new Vector3f();
+        rot.getEulerAnglesXYZ(euler);
+        System.out.println(indent + node.mName().dataString() + " rotXYZ(deg)=("
+                + Math.toDegrees(euler.x) + ", " + Math.toDegrees(euler.y) + ", " + Math.toDegrees(euler.z) + ")");
+
+        int numChildren = node.mNumChildren();
+        PointerBuffer children = node.mChildren();
+        for (int i = 0; i < numChildren; i++)
+        {
+            dumpNodeTransforms(AINode.create(children.get(i)), indent + "  ");
         }
     }
 

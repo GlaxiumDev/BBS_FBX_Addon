@@ -32,8 +32,8 @@ public class BBSFbxAddon implements BBSAddonMod
     public void registerL10n(RegisterL10nEvent event)
     {
         event.l10n.register((lang) -> List.of(
-            new Link("bbs_fbx", "lang/" + L10n.DEFAULT_LANGUAGE + ".json"),
-            new Link("bbs_fbx", "lang/" + lang + ".json")
+                new Link("bbs_fbx", "lang/" + L10n.DEFAULT_LANGUAGE + ".json"),
+                new Link("bbs_fbx", "lang/" + lang + ".json")
         ));
 
         try
