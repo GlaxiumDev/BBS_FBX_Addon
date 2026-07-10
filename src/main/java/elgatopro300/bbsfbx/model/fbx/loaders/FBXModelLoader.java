@@ -113,6 +113,7 @@ public class FBXModelLoader implements IModelLoader
             try
             {
                 data = FBXConverter.convert(scene);
+                FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
             } finally
             {
                 Assimp.aiReleaseImport(scene);
