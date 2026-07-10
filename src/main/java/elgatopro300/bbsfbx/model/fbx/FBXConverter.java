@@ -101,8 +101,10 @@ public class FBXConverter
         {
             markNeededNodes(rootNode, skinnedBones.keySet(), neededNodes);
 
-            float s = findFirstScale(rootNode, neededNodes, skinnedBones);
-            if (s > 0) globalScale[0] *= s;
+            // Skinned vertices are already in bind (meter) space and never
+            // receive the node's baked 100x cm scale, so the 0.01 unit-cancel
+            // must NOT apply. Set to 1.0 = true scale (fixes the ~150x shrink).
+            globalScale[0] = 1.0f;
         }
         else
         {
@@ -272,6 +274,9 @@ public class FBXConverter
                     boneMat.mul(rootCorrection);
                 }
             }
+
+            Matrix4f corrected = new Matrix4f(rootCorrection).mul(boneMat);
+            boneMat = corrected;
 
             boneMat.normalize3x3();
 
