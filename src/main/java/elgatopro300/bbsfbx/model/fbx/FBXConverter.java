@@ -275,9 +275,6 @@ public class FBXConverter
                 }
             }
 
-            Matrix4f corrected = new Matrix4f(rootCorrection).mul(boneMat);
-            boneMat = corrected;
-
             boneMat.normalize3x3();
 
             BOBJBone bone = new BOBJBone(armature.bones.size(), name, parentName, boneMat);
