@@ -35,15 +35,24 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * FBXConverter class responsible for converting Assimp AIScene structures
- * into BOBJData format.
+ * FBXConverter converts an Assimp {@link AIScene} into BBS FS {@link BOBJData}.
+ *
+ * <p>Coordinate handling:
+ * <ul>
+ *   <li>Blender bakes a 100x (cm->m) scale into the FBX node transform, so
+ *       vertices are pre-multiplied by {@link #FBX_UNIT_SCALE} (0.01).</li>
+ *   <li>No auto-centering, grounding, or height-normalization. The model keeps
+ *       the exact position/scale it had in Blender.</li>
+ *   <li>For non-skinned scenes, each object becomes its own bone named after the
+ *       object, anchored at that object's Blender origin, so every mesh pivots
+ *       around its own point (requires OptimizeGraph to be OFF in the loader).</li>
+ * </ul>
  */
+@SuppressWarnings({"resource", "DataFlowIssue"})
 public class FBXConverter
 {
-    private static final int FRAMES_PER_SECOND = 20;
-    private static final float TARGET_MODEL_HEIGHT = 1.8f;
-    private static final float MIN_REASONABLE_HEIGHT = 0.25f;
-    private static final float MAX_REASONABLE_HEIGHT = 4.0f;
+    /** Undoes the 100x cm->m scale Blender bakes into FBX node transforms. */
+    private static final float FBX_UNIT_SCALE = 0.01f;
 
     /**
      * Converts an Assimp scene into BOBJData.
@@ -57,9 +66,17 @@ public class FBXConverter
         Map<String, BOBJAction> actions = new HashMap<>();
         Map<String, BOBJArmature> armatures = new HashMap<>();
 
+        AINode rootNode = scene.mRootNode();
+        if (rootNode == null)
+        {
+            return new BOBJData(vertices, textures, normals, meshes, actions, armatures);
+        }
+
         FBXMetadata metadata = new FBXMetadata(scene);
         Matrix4f rootCorrection = buildRootCorrection(metadata);
-        Map<Integer, Matrix4f> meshTransforms = collectMeshTransforms(scene.mRootNode());
+
+        Map<Integer, String> meshNodeNames = new HashMap<>();
+        Map<Integer, Matrix4f> meshTransforms = collectMeshTransforms(rootNode, meshNodeNames);
 
         Map<String, AIBone> skinnedBones = new HashMap<>();
         int numMeshes = scene.mNumMeshes();
@@ -77,27 +94,40 @@ public class FBXConverter
         BOBJArmature globalArmature = new BOBJArmature("Armature");
         armatures.put(globalArmature.name, globalArmature);
 
-        // The FBX node transform bakes a 100x scale (cm->m). This file reports
-        // UnitScaleFactor=0, so resolveMetadataScale can't cancel it. Undo the
-        // baked 100x with 0.01 so models load at true Blender size.
-        float[] globalScale = {0.01f};
+        float[] globalScale = {FBX_UNIT_SCALE};
         Set<String> neededNodes = new HashSet<>();
 
         if (!skinnedBones.isEmpty())
         {
-            markNeededNodes(scene.mRootNode(), skinnedBones.keySet(), neededNodes);
+            markNeededNodes(rootNode, skinnedBones.keySet(), neededNodes);
 
-            float s = findFirstScale(scene.mRootNode(), neededNodes, skinnedBones);
+            float s = findFirstScale(rootNode, neededNodes, skinnedBones);
             if (s > 0) globalScale[0] *= s;
         }
         else
         {
-            BOBJBone root = new BOBJBone(0, "root", "", new Matrix4f());
-            globalArmature.addBone(root);
+            // One bone per object, named after the object, anchored at its
+            // Blender origin so each mesh pivots around its own point.
+            for (int i = 0; i < numMeshes; i++)
+            {
+                String objectName = meshNodeNames.getOrDefault(i, "object_" + i);
+                if (globalArmature.bones.containsKey(objectName)) continue;
+
+                Matrix4f nodeWorld = meshTransforms.get(i);
+                Matrix4f boneRest = nodeWorld == null
+                        ? new Matrix4f(rootCorrection)
+                        : new Matrix4f(rootCorrection).mul(nodeWorld);
+
+                boneRest.m30(boneRest.m30() * globalScale[0]);
+                boneRest.m31(boneRest.m31() * globalScale[0]);
+                boneRest.m32(boneRest.m32() * globalScale[0]);
+                boneRest.normalize3x3();
+
+                globalArmature.addBone(new BOBJBone(globalArmature.bones.size(), objectName, "", boneRest));
+            }
         }
 
-        // No auto-centering, no auto-grounding, no height-normalization.
-        // Respect Blender's coordinates exactly.
+        // Respect Blender's coordinates exactly: no centering/grounding/normalization.
         float offsetX = 0;
         float offsetY = 0;
         float offsetZ = 0;
@@ -105,13 +135,14 @@ public class FBXConverter
         if (!skinnedBones.isEmpty())
         {
             Matrix4f initialGlobal = new Matrix4f().translate(offsetX, offsetY, offsetZ);
-            processNodes(scene.mRootNode(), "", initialGlobal, globalArmature, skinnedBones, neededNodes, globalScale, rootCorrection, offsetX, offsetY, offsetZ);
+            processNodes(rootNode, "", initialGlobal, globalArmature, skinnedBones, neededNodes, globalScale, rootCorrection, offsetX, offsetY, offsetZ);
         }
 
         for (int i = 0; i < numMeshes; i++)
         {
             AIMesh aiMesh = AIMesh.create(scene.mMeshes().get(i));
-            processMesh(scene, aiMesh, i, vertices, textures, normals, meshes, globalArmature, globalScale[0], rootCorrection, offsetX, offsetY, offsetZ, meshTransforms);
+            String objectBoneName = meshNodeNames.getOrDefault(i, "object_" + i);
+            processMesh(scene, aiMesh, i, vertices, textures, normals, meshes, globalArmature, globalScale[0], rootCorrection, offsetX, offsetY, offsetZ, meshTransforms, objectBoneName);
         }
 
         for (Vertex vertex : vertices)
@@ -171,8 +202,8 @@ public class FBXConverter
     }
 
     /**
-     * Recursively checks if a node or its children are referenced in the skinnedBones map.
-     * Populates neededNodes with names of nodes that should be part of the armature.
+     * Recursively marks nodes that belong to the armature (a node is needed if
+     * it, or any descendant, is a skinned bone).
      */
     private static boolean markNeededNodes(AINode node, Set<String> skinnedBones, Set<String> neededNodes)
     {
@@ -200,8 +231,7 @@ public class FBXConverter
     }
 
     /**
-     * Recursively processes nodes to build the bone hierarchy.
-     * Calculates global transformations and applies corrections.
+     * Recursively processes nodes to build the bone hierarchy (skinned path).
      */
     private static void processNodes(AINode node, String parentName, Matrix4f parentGlobal, BOBJArmature armature, Map<String, AIBone> skinnedBones, Set<String> neededNodes, float[] globalScale, Matrix4f rootCorrection, float offsetX, float offsetY, float offsetZ)
     {
@@ -261,18 +291,22 @@ public class FBXConverter
     }
 
     /**
-     * Converts an Assimp mesh to a BOBJMesh.
-     * Transforms vertices/normals into the correct coordinate space and extracts weights.
+     * Converts an Assimp mesh to a BOBJMesh, transforming vertices/normals into
+     * BBS space and extracting bone weights.
+     *
+     * <p>For non-skinned meshes the full node transform (including translation)
+     * is applied, and every vertex is weighted to the object's own bone
+     * ({@code objectBoneName}) so it pivots at its Blender origin.
      */
-    private static void processMesh(AIScene scene, AIMesh aiMesh, int meshIndex, List<Vertex> vertices, List<Vector2d> textures, List<Vector3f> normals, List<BOBJMesh> meshes, BOBJArmature armature, float scaleFactor, Matrix4f rootCorrection, float offsetX, float offsetY, float offsetZ, Map<Integer, Matrix4f> meshTransforms)
+    private static void processMesh(AIScene scene, AIMesh aiMesh, int meshIndex, List<Vertex> vertices, List<Vector2d> textures, List<Vector3f> normals, List<BOBJMesh> meshes, BOBJArmature armature, float scaleFactor, Matrix4f rootCorrection, float offsetX, float offsetY, float offsetZ, Map<Integer, Matrix4f> meshTransforms, String objectBoneName)
     {
-
         FBXMesh mesh = new FBXMesh(aiMesh.mName().dataString());
         mesh.armatureName = armature.name;
         mesh.armature = armature;
+
         Matrix4f meshTransform = meshTransforms.get(meshIndex);
-        Matrix4f meshRotationScale = toRotationScale(meshTransform);
-        boolean applyNodeTransform = aiMesh.mNumBones() == 0 && meshRotationScale != null;
+        boolean skinned = aiMesh.mNumBones() > 0;
+        boolean applyNodeTransform = !skinned && meshTransform != null;
 
         int vertexBaseIndex = vertices.size();
         int textureBaseIndex = textures.size();
@@ -285,12 +319,15 @@ public class FBXConverter
         {
             AIVector3D aiVertex = aiVertices.get();
 
-            pos.set(aiVertex.x() * scaleFactor, aiVertex.y() * scaleFactor, aiVertex.z() * scaleFactor);
+            pos.set(aiVertex.x(), aiVertex.y(), aiVertex.z());
             if (applyNodeTransform)
             {
-                meshRotationScale.transformPosition(pos);
+                // Full node transform: rotation, scale AND translation (the
+                // object's Blender position/pivot).
+                meshTransform.transformPosition(pos);
             }
 
+            pos.mul(scaleFactor);
             rootCorrection.transformPosition(pos);
 
             pos.x += offsetX;
@@ -309,7 +346,7 @@ public class FBXConverter
                 Vector3f norm = new Vector3f(aiNormal.x(), aiNormal.y(), aiNormal.z());
                 if (applyNodeTransform)
                 {
-                    meshRotationScale.transformDirection(norm);
+                    meshTransform.transformDirection(norm);
                 }
 
                 rootCorrection.transformDirection(norm);
@@ -365,9 +402,9 @@ public class FBXConverter
             }
         }
 
-        int numBones = aiMesh.mNumBones();
-        if (numBones > 0)
+        if (skinned)
         {
+            int numBones = aiMesh.mNumBones();
             for (int i = 0; i < numBones; i++)
             {
                 AIBone aiBone = AIBone.create(aiMesh.mBones().get(i));
@@ -387,6 +424,14 @@ public class FBXConverter
                 }
             }
         }
+        else if (objectBoneName != null)
+        {
+            // Weight every vertex of this object to its own bone.
+            for (int v = vertexBaseIndex; v < vertices.size(); v++)
+            {
+                vertices.get(v).weights.add(new Weight(objectBoneName, 1.0f));
+            }
+        }
 
         int materialIndex = aiMesh.mMaterialIndex();
         if (materialIndex >= 0 && materialIndex < scene.mNumMaterials())
@@ -398,7 +443,7 @@ public class FBXConverter
             {
                 String texturePath = path.dataString();
 
-                if (texturePath != null && !texturePath.isEmpty())
+                if (!texturePath.isEmpty())
                 {
                     texturePath = texturePath.replace('\\', '/');
                     int lastSlash = texturePath.lastIndexOf('/');
@@ -417,91 +462,6 @@ public class FBXConverter
 
         meshes.add(mesh);
     }
-
-    /* Need some fixes!
-    private static void processAnimation(AIAnimation aiAnimation, Map<String, BOBJAction> actions, float scaleFactor)
-    {
-        String name = aiAnimation.mName().dataString();
-        if (name.isEmpty()) name = "animation";
-
-        BOBJAction action = new BOBJAction(name);
-        actions.put(name, action);
-
-        double duration = aiAnimation.mDuration();
-        double ticksPerSecond = aiAnimation.mTicksPerSecond();
-        if (ticksPerSecond == 0) ticksPerSecond = 24.0;
-
-        int numChannels = aiAnimation.mNumChannels();
-        for (int i = 0; i < numChannels; i++)
-        {
-            AINodeAnim aiNodeAnim = AINodeAnim.create(aiAnimation.mChannels().get(i));
-            String nodeName = aiNodeAnim.mNodeName().dataString();
-
-            BOBJGroup group = new BOBJGroup(nodeName);
-            action.groups.put(nodeName, group);
-
-            BOBJChannel tx = new BOBJChannel("location.x", 0);
-            BOBJChannel ty = new BOBJChannel("location.y", 1);
-            BOBJChannel tz = new BOBJChannel("location.z", 2);
-
-            BOBJChannel rx = new BOBJChannel("rotation.x", 3);
-            BOBJChannel ry = new BOBJChannel("rotation.y", 4);
-            BOBJChannel rz = new BOBJChannel("rotation.z", 5);
-
-            BOBJChannel sx = new BOBJChannel("scale.x", 6);
-            BOBJChannel sy = new BOBJChannel("scale.y", 7);
-            BOBJChannel sz = new BOBJChannel("scale.z", 8);
-
-            int numPositionKeys = aiNodeAnim.mNumPositionKeys();
-            for (int j = 0; j < numPositionKeys; j++)
-            {
-                AIVectorKey key = aiNodeAnim.mPositionKeys().get(j);
-                float time = (float) (key.mTime() / ticksPerSecond * FRAMES_PER_SECOND);
-                AIVector3D vec = key.mValue();
-
-                tx.keyframes.add(new BOBJKeyframe(time, vec.x() * scaleFactor));
-                ty.keyframes.add(new BOBJKeyframe(time, vec.y() * scaleFactor));
-                tz.keyframes.add(new BOBJKeyframe(time, vec.z() * scaleFactor));
-            }
-
-            int numRotationKeys = aiNodeAnim.mNumRotationKeys();
-            Vector3f euler = new Vector3f();
-
-            for (int j = 0; j < numRotationKeys; j++)
-            {
-                AIQuatKey key = aiNodeAnim.mRotationKeys().get(j);
-                float time = (float) (key.mTime() / ticksPerSecond * FRAMES_PER_SECOND);
-                AIQuaternion quat = key.mValue();
-
-                getEulerAngles(quat.x(), quat.y(), quat.z(), quat.w(), euler);
-
-                rx.keyframes.add(new BOBJKeyframe(time, (float) Math.toDegrees(euler.x)));
-                ry.keyframes.add(new BOBJKeyframe(time, (float) Math.toDegrees(euler.y)));
-                rz.keyframes.add(new BOBJKeyframe(time, (float) Math.toDegrees(euler.z)));
-            }
-
-            int numScalingKeys = aiNodeAnim.mNumScalingKeys();
-            for (int j = 0; j < numScalingKeys; j++)
-            {
-                AIVectorKey key = aiNodeAnim.mScalingKeys().get(j);
-                float time = (float) (key.mTime() / ticksPerSecond * FRAMES_PER_SECOND);
-                sx.keyframes.add(new BOBJKeyframe(time, 1.0f));
-                sy.keyframes.add(new BOBJKeyframe(time, 1.0f));
-                sz.keyframes.add(new BOBJKeyframe(time, 1.0f));
-            }
-
-            if (!tx.keyframes.isEmpty()) group.channels.add(tx);
-            if (!ty.keyframes.isEmpty()) group.channels.add(ty);
-            if (!tz.keyframes.isEmpty()) group.channels.add(tz);
-            if (!rx.keyframes.isEmpty()) group.channels.add(rx);
-            if (!ry.keyframes.isEmpty()) group.channels.add(ry);
-            if (!rz.keyframes.isEmpty()) group.channels.add(rz);
-            if (!sx.keyframes.isEmpty()) group.channels.add(sx);
-            if (!sy.keyframes.isEmpty()) group.channels.add(sy);
-            if (!sz.keyframes.isEmpty()) group.channels.add(sz);
-        }
-    }
-    */
 
     private static Matrix4f toMatrix4f(AIMatrix4x4 m)
     {
@@ -531,136 +491,34 @@ public class FBXConverter
         return correction;
     }
 
-    private static float resolveMetadataScale(FBXMetadata metadata)
-    {
-        if (metadata.unitScaleFactor <= 0)
-        {
-            return 1.0f;
-        }
-
-        return (float) (metadata.unitScaleFactor / 100.0);
-    }
-
-    private static Bounds computeBounds(AIScene scene, Matrix4f rootCorrection, float scale, Map<Integer, Matrix4f> meshTransforms)
-    {
-        Bounds bounds = new Bounds();
-        Vector3f pos = new Vector3f();
-        int numMeshes = scene.mNumMeshes();
-
-        for (int i = 0; i < numMeshes; i++)
-        {
-            AIMesh aiMesh = AIMesh.create(scene.mMeshes().get(i));
-            Matrix4f meshTransform = meshTransforms.get(i);
-            Matrix4f meshRotationScale = toRotationScale(meshTransform);
-            boolean applyNodeTransform = aiMesh.mNumBones() == 0 && meshRotationScale != null;
-            System.err.println("[FBX] mesh=" + aiMesh.mName().dataString()
-                    + " meshTransform=" + (meshTransform == null ? "NULL" : meshTransform.toString()));
-            AIVector3D.Buffer aiVertices = aiMesh.mVertices();
-
-
-            while (aiVertices.remaining() > 0)
-            {
-                AIVector3D v = aiVertices.get();
-                pos.set(v.x() * scale, v.y() * scale, v.z() * scale);
-                if (applyNodeTransform)
-                {
-                    meshRotationScale.transformPosition(pos);
-                }
-                rootCorrection.transformPosition(pos);
-
-                if (pos.y < bounds.minY)
-                {
-                    bounds.minY = pos.y;
-                }
-                if (pos.y > bounds.maxY)
-                {
-                    bounds.maxY = pos.y;
-                }
-                if (pos.x < bounds.minX)
-                {
-                    bounds.minX = pos.x;
-                }
-                if (pos.x > bounds.maxX)
-                {
-                    bounds.maxX = pos.x;
-                }
-                if (pos.z < bounds.minZ)
-                {
-                    bounds.minZ = pos.z;
-                }
-                if (pos.z > bounds.maxZ)
-                {
-                    bounds.maxZ = pos.z;
-                }
-            }
-        }
-
-        return bounds;
-    }
-
-    private static Map<Integer, Matrix4f> collectMeshTransforms(AINode rootNode)
+    private static Map<Integer, Matrix4f> collectMeshTransforms(AINode rootNode, Map<Integer, String> meshNodeNames)
     {
         Map<Integer, Matrix4f> meshTransforms = new HashMap<>();
-        collectMeshTransforms(rootNode, new Matrix4f(), meshTransforms);
+        collectMeshTransforms(rootNode, new Matrix4f(), meshTransforms, meshNodeNames);
         return meshTransforms;
     }
 
-    private static void collectMeshTransforms(AINode node, Matrix4f parentGlobal, Map<Integer, Matrix4f> meshTransforms)
+    private static void collectMeshTransforms(AINode node, Matrix4f parentGlobal, Map<Integer, Matrix4f> meshTransforms, Map<Integer, String> meshNodeNames)
     {
         Matrix4f local = toMatrix4f(node.mTransformation());
         Matrix4f global = new Matrix4f(parentGlobal).mul(local);
 
+        String nodeName = node.mName().dataString();
         IntBuffer meshIndices = node.mMeshes();
         int numMeshes = node.mNumMeshes();
         for (int i = 0; i < numMeshes; i++)
         {
             int meshIndex = meshIndices.get(i);
             meshTransforms.putIfAbsent(meshIndex, new Matrix4f(global));
+            meshNodeNames.putIfAbsent(meshIndex, nodeName);
         }
 
         PointerBuffer children = node.mChildren();
         int numChildren = node.mNumChildren();
         for (int i = 0; i < numChildren; i++)
         {
-            collectMeshTransforms(AINode.create(children.get(i)), global, meshTransforms);
+            collectMeshTransforms(AINode.create(children.get(i)), global, meshTransforms, meshNodeNames);
         }
-    }
-
-    private static Matrix4f toRotationScale(Matrix4f matrix)
-    {
-        if (matrix == null)
-        {
-            return null;
-        }
-
-        Matrix4f result = new Matrix4f(matrix);
-        result.m30(0);
-        result.m31(0);
-        result.m32(0);
-        return result;
-    }
-
-    /**
-     * Converts a Quaternion (x, y, z, w) to Euler angles (roll, pitch, yaw).
-     */
-    private static void getEulerAngles(float x, float y, float z, float w, Vector3f dest)
-    {
-        double sinr_cosp = 2 * (w * x + y * z);
-        double cosr_cosp = 1 - 2 * (x * x + y * y);
-        double roll = Math.atan2(sinr_cosp, cosr_cosp);
-
-        double sinp = 2 * (w * y - z * x);
-        double pitch;
-        if (Math.abs(sinp) >= 1)
-            pitch = Math.copySign(Math.PI / 2, sinp);
-        else
-            pitch = Math.asin(sinp);
-
-        double siny_cosp = 2 * (w * z + x * y);
-        double cosy_cosp = 1 - 2 * (y * y + z * z);
-        double yaw = Math.atan2(siny_cosp, cosy_cosp);
-
-        dest.set((float) roll, (float) pitch, (float) yaw);
     }
 
     /**
@@ -673,31 +531,6 @@ public class FBXConverter
         public FBXMesh(String name)
         {
             super(name);
-        }
-    }
-
-    private static class Bounds
-    {
-        private float minY = Float.MAX_VALUE;
-        private float maxY = -Float.MAX_VALUE;
-        private float minX = Float.MAX_VALUE;
-        private float maxX = -Float.MAX_VALUE;
-        private float minZ = Float.MAX_VALUE;
-        private float maxZ = -Float.MAX_VALUE;
-
-        private float height()
-        {
-            if (this.minY == Float.MAX_VALUE || this.maxY == -Float.MAX_VALUE)
-            {
-                return 0;
-            }
-
-            return this.maxY - this.minY;
-        }
-
-        private boolean hasHorizontalBounds()
-        {
-            return this.minX != Float.MAX_VALUE && this.maxX != -Float.MAX_VALUE && this.minZ != Float.MAX_VALUE && this.maxZ != -Float.MAX_VALUE;
         }
     }
 }

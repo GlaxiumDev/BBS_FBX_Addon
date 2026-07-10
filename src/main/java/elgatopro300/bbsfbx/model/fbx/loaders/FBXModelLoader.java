@@ -78,9 +78,10 @@ public class FBXModelLoader implements IModelLoader
             buffer.flip();
 
             AIPropertyStore store = Assimp.aiCreatePropertyStore();
-            AIScene scene = null;
+            AIScene scene;
             try
             {
+                assert store != null;
                 Assimp.aiSetImportPropertyInteger(store, Assimp.AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, 0);
                 Assimp.aiSetImportPropertyFloat(store, Assimp.AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY, 1.0f);
 
@@ -90,13 +91,13 @@ public class FBXModelLoader implements IModelLoader
                                 Assimp.aiProcess_LimitBoneWeights |
                                 Assimp.aiProcess_JoinIdenticalVertices |
                                 Assimp.aiProcess_GenSmoothNormals |
-                                Assimp.aiProcess_OptimizeGraph |
                                 Assimp.aiProcess_PopulateArmatureData,
                         (ByteBuffer) null,
                         store);
             }
             finally
             {
+                assert store != null;
                 Assimp.aiReleasePropertyStore(store);
             }
 
@@ -155,20 +156,18 @@ public class FBXModelLoader implements IModelLoader
 
                     for (BOBJChannel channel : group.channels)
                     {
-                        KeyframeChannel<MolangExpression> targetChannel = null;
-
-                        switch (channel.path)
-                        {
-                            case "location.x": targetChannel = part.x; break;
-                            case "location.y": targetChannel = part.y; break;
-                            case "location.z": targetChannel = part.z; break;
-                            case "rotation.x": targetChannel = part.rx; break;
-                            case "rotation.y": targetChannel = part.ry; break;
-                            case "rotation.z": targetChannel = part.rz; break;
-                            case "scale.x": targetChannel = part.sx; break;
-                            case "scale.y": targetChannel = part.sy; break;
-                            case "scale.z": targetChannel = part.sz; break;
-                        }
+                        KeyframeChannel<MolangExpression> targetChannel = switch (channel.path) {
+                            case "location.x" -> part.x;
+                            case "location.y" -> part.y;
+                            case "location.z" -> part.z;
+                            case "rotation.x" -> part.rx;
+                            case "rotation.y" -> part.ry;
+                            case "rotation.z" -> part.rz;
+                            case "scale.x" -> part.sx;
+                            case "scale.y" -> part.sy;
+                            case "scale.z" -> part.sz;
+                            default -> null;
+                        };
 
                         if (targetChannel != null)
                         {
@@ -190,9 +189,8 @@ public class FBXModelLoader implements IModelLoader
             /*
              Try to find texture from mesh data first
              */
-            if (!data.meshes.isEmpty() && data.meshes.get(0) instanceof FBXConverter.FBXMesh)
+            if (!data.meshes.isEmpty() && data.meshes.get(0) instanceof FBXConverter.FBXMesh mesh)
             {
-                FBXConverter.FBXMesh mesh = (FBXConverter.FBXMesh) data.meshes.get(0);
 
                 if (mesh.texture != null && !mesh.texture.isEmpty())
                 {
@@ -260,7 +258,6 @@ public class FBXModelLoader implements IModelLoader
         catch (Throwable e)
         {
             System.err.println("Failed to load FBX model for " + id + ": " + e.getClass().getSimpleName() + " - " + e.getMessage());
-            e.printStackTrace();
         }
         return null;
     }
@@ -286,10 +283,10 @@ public class FBXModelLoader implements IModelLoader
         int[] indices = new int[totalVertices];
 
 
-        int vIndex = 0;  /** >> Vertex index */
-        int wIndex = 0;  /** >> Weight/Bone index (x4) */
-        int pIndex = 0;  /** >> Position/Normal index (x3) */
-        int tIndex = 0;  /** >> Texture index (x2) */
+        int vIndex = 0;  // >> Vertex index */
+        int wIndex = 0;  // >> Weight/Bone index (x4) */
+        int pIndex = 0;  // >> Position/Normal index (x3) */
+        int tIndex = 0;  // >> Texture index (x2) */
 
         for (BOBJLoader.Face face : mesh.faces)
         {
