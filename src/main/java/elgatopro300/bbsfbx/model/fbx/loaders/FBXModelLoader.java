@@ -36,7 +36,9 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import elgatopro300.bbsfbx.model.fbx.FBXConverter;
 
@@ -231,12 +233,20 @@ public class FBXModelLoader implements IModelLoader
             /* In BBS FS each mesh is its own material (keyed by mesh name),
              * mirroring FS's BOBJModelLoader: register the material and try to
              * resolve a per-material texture folder; meshes without one fall
-             * back to the model texture. */
+             * back to the model texture.
+             *
+             * Several meshes can share the same material name (e.g. multiple
+             * Blender objects using one material), so materials are
+             * deduplicated here - each unique name is only registered once.
+             * Without this, the material texture picker would list the same
+             * material once per mesh that uses it. */
+            Set<String> registeredMaterials = new HashSet<>();
+
             for (CompiledData mesh : compiledMeshes)
             {
                 String material = mesh.mesh.name;
 
-                if (material == null || material.isEmpty())
+                if (material == null || material.isEmpty() || !registeredMaterials.add(material))
                 {
                     continue;
                 }
