@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Set;
 
 import elgatopro300.bbsfbx.model.fbx.FBXConverter;
+import elgatopro300.bbsfbx.model.fbx.FBXMesh;
 
 public class FBXModelLoader implements IModelLoader
 {
@@ -192,7 +193,7 @@ public class FBXModelLoader implements IModelLoader
             /*
              Try to find texture from mesh data first
              */
-            if (!data.meshes.isEmpty() && data.meshes.get(0) instanceof FBXConverter.FBXMesh mesh)
+            if (!data.meshes.isEmpty() && data.meshes.get(0) instanceof FBXMesh mesh)
             {
 
                 if (mesh.texture != null && !mesh.texture.isEmpty())
