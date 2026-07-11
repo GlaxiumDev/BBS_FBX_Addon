@@ -148,7 +148,12 @@ public class FBXModelLoader implements IModelLoader
                 for (BOBJAction action : data.actions.values())
                 {
                     Animation animation = new Animation(action.name, models.parser);
-                    animation.setLength(action.getDuration() / 20.0);
+
+                    // A single keyframe (or all keys at frame 0) yields duration 0,
+                    // which makes a zero-length clip that never plays. Floor to at
+                    // least 1 frame so a static/single-frame pose still renders.
+                    float duration = Math.max(action.getDuration(), 1f);
+                    animation.setLength(duration / 20.0);
 
                     for (BOBJGroup group : action.groups.values())
                     {
