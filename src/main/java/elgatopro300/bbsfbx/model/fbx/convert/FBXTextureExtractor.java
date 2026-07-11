@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Extracts embedded FBX textures (Blender's "Embed Textures" export option)
@@ -38,7 +39,7 @@ public final class FBXTextureExtractor
 
         for (int i = 0; i < numMaterials; i++)
         {
-            AIMaterial material = AIMaterial.create(scene.mMaterials().get(i));
+            AIMaterial material = AIMaterial.create(Objects.requireNonNull(scene.mMaterials()).get(i));
 
             AIString nameStr = AIString.calloc();
             String materialName = null;
@@ -163,7 +164,7 @@ public final class FBXTextureExtractor
                 int index = Integer.parseInt(texturePath.substring(1));
                 if (index >= 0 && index < numTextures)
                 {
-                    return AITexture.create(scene.mTextures().get(index));
+                    return AITexture.create(Objects.requireNonNull(scene.mTextures()).get(index));
                 }
             }
             catch (NumberFormatException ignored)
@@ -176,7 +177,7 @@ public final class FBXTextureExtractor
 
         for (int i = 0; i < numTextures; i++)
         {
-            AITexture candidate = AITexture.create(scene.mTextures().get(i));
+            AITexture candidate = AITexture.create(Objects.requireNonNull(scene.mTextures()).get(i));
             AIString filenameHint = candidate.mFilename();
             String hint = filenameHint.dataString();
 
@@ -188,7 +189,7 @@ public final class FBXTextureExtractor
 
         if (numTextures == 1)
         {
-            return AITexture.create(scene.mTextures().get(0));
+            return AITexture.create(Objects.requireNonNull(scene.mTextures()).get(0));
         }
 
         return null;

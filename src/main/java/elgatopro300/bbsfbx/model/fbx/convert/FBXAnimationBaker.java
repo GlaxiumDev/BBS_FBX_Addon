@@ -22,6 +22,7 @@ import org.lwjgl.assimp.AIVectorKey;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.TreeSet;
 
 /**
@@ -85,7 +86,7 @@ public final class FBXAnimationBaker
 
         for (int a = 0; a < numAnimations; a++)
         {
-            AIAnimation aiAnimation = AIAnimation.create(scene.mAnimations().get(a));
+            AIAnimation aiAnimation = AIAnimation.create(Objects.requireNonNull(scene.mAnimations()).get(a));
 
             String name = aiAnimation.mName().dataString();
             if (name.isEmpty())
@@ -113,7 +114,7 @@ public final class FBXAnimationBaker
             int numChannels = aiAnimation.mNumChannels();
             for (int c = 0; c < numChannels; c++)
             {
-                AINodeAnim nodeAnim = AINodeAnim.create(aiAnimation.mChannels().get(c));
+                AINodeAnim nodeAnim = AINodeAnim.create(Objects.requireNonNull(Objects.requireNonNull(aiAnimation.mChannels())).get(c));
                 String nodeName = nodeAnim.mNodeName().dataString();
 
                 /* Only animate nodes that ended up as bones in the armature. */
@@ -155,7 +156,7 @@ public final class FBXAnimationBaker
         AIVectorKey.Buffer posKeys = nodeAnim.mPositionKeys();
         for (int i = 0; i < numPos; i++)
         {
-            AIVectorKey key = posKeys.get(i);
+            AIVectorKey key = Objects.requireNonNull(posKeys).get(i);
             posTimes[i] = key.mTime();
             AIVector3D v = key.mValue();
             posVals[i] = new Vector3f(v.x(), v.y(), v.z());
@@ -166,7 +167,7 @@ public final class FBXAnimationBaker
         AIQuatKey.Buffer rotKeys = nodeAnim.mRotationKeys();
         for (int i = 0; i < numRot; i++)
         {
-            AIQuatKey key = rotKeys.get(i);
+            AIQuatKey key = Objects.requireNonNull(rotKeys).get(i);
             rotTimes[i] = key.mTime();
             AIQuaternion q = key.mValue();
             rotVals[i] = new Quaternionf(q.x(), q.y(), q.z(), q.w());
@@ -177,7 +178,7 @@ public final class FBXAnimationBaker
         AIVectorKey.Buffer scaleKeys = nodeAnim.mScalingKeys();
         for (int i = 0; i < numScale; i++)
         {
-            AIVectorKey key = scaleKeys.get(i);
+            AIVectorKey key = Objects.requireNonNull(scaleKeys).get(i);
             scaleTimes[i] = key.mTime();
             AIVector3D v = key.mValue();
             scaleVals[i] = new Vector3f(v.x(), v.y(), v.z());
