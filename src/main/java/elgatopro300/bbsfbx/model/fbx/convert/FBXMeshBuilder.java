@@ -26,7 +26,6 @@ import org.lwjgl.assimp.Assimp;
 import java.nio.IntBuffer;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Converts a single Assimp mesh into a {@link BOBJMesh} (as an
@@ -164,7 +163,7 @@ public final class FBXMeshBuilder
             int numBones = aiMesh.mNumBones();
             for (int i = 0; i < numBones; i++)
             {
-                AIBone aiBone = AIBone.create(Objects.requireNonNull(aiMesh.mBones()).get(i));
+                AIBone aiBone = AIBone.create(aiMesh.mBones().get(i));
                 String boneName = aiBone.mName().dataString();
 
                 AIVertexWeight.Buffer aiWeights = aiBone.mWeights();
@@ -192,7 +191,7 @@ public final class FBXMeshBuilder
         int materialIndex = aiMesh.mMaterialIndex();
         if (materialIndex >= 0 && materialIndex < scene.mNumMaterials())
         {
-            AIMaterial material = AIMaterial.create(Objects.requireNonNull(scene.mMaterials()).get(materialIndex));
+            AIMaterial material = AIMaterial.create(scene.mMaterials().get(materialIndex));
 
             AIString nameStr = AIString.calloc();
             if (Assimp.aiGetMaterialString(material, Assimp.AI_MATKEY_NAME, 0, 0, nameStr) == Assimp.aiReturn_SUCCESS)

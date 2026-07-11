@@ -13,7 +13,6 @@ import org.lwjgl.assimp.AIScene;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -37,12 +36,12 @@ public final class FBXArmatureBuilder
 
         for (int i = 0; i < numMeshes; i++)
         {
-            AIMesh aiMesh = AIMesh.create(Objects.requireNonNull(scene.mMeshes()).get(i));
+            AIMesh aiMesh = AIMesh.create(scene.mMeshes().get(i));
             int numBones = aiMesh.mNumBones();
 
             for (int j = 0; j < numBones; j++)
             {
-                AIBone aiBone = AIBone.create(Objects.requireNonNull(Objects.requireNonNull(aiMesh.mBones())).get(j));
+                AIBone aiBone = AIBone.create(aiMesh.mBones().get(j));
                 String boneName = aiBone.mName().dataString();
                 skinnedBones.putIfAbsent(boneName, aiBone);
                 skinnedBoneMeshIndex.putIfAbsent(boneName, i);
@@ -126,7 +125,7 @@ public final class FBXArmatureBuilder
 
         for (int i = 0; i < numChildren; i++)
         {
-            AINode child = AINode.create(Objects.requireNonNull(children).get(i));
+            AINode child = AINode.create(children.get(i));
             if (markNeededNodes(child, skinnedBones, neededNodes))
             {
                 needed = true;
@@ -204,7 +203,7 @@ public final class FBXArmatureBuilder
 
         for (int i = 0; i < numChildren; i++)
         {
-            AINode child = AINode.create(Objects.requireNonNull(children).get(i));
+            AINode child = AINode.create(children.get(i));
             buildSkinnedHierarchy(child, nextParent, global, armature, skinnedBones, boneMeshRotations, neededNodes, globalScale, rootCorrection, offsetX, offsetY, offsetZ);
         }
     }

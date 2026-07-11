@@ -7,7 +7,6 @@ import org.lwjgl.assimp.AINode;
 import java.nio.IntBuffer;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Reads the raw Assimp node tree: per-mesh world transforms, which node each
@@ -47,7 +46,7 @@ public final class FBXSceneWalker
         int numChildren = node.mNumChildren();
         for (int i = 0; i < numChildren; i++)
         {
-            AINode child = AINode.create(Objects.requireNonNull(children).get(i));
+            AINode child = AINode.create(children.get(i));
             String childName = child.mName().dataString();
             // Skip synthetic roots so top-level objects stay parentless.
             String parentForChild = (nodeName.equals("RootNode") || nodeName.equals("Armature")) ? "" : nodeName;
@@ -70,7 +69,7 @@ public final class FBXSceneWalker
 
         for (int i = 0; i < numChildren; i++)
         {
-            collectNodeLocals(AINode.create(Objects.requireNonNull(children).get(i)), map);
+            collectNodeLocals(AINode.create(children.get(i)), map);
         }
     }
 }
