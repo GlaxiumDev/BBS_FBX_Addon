@@ -1,5 +1,7 @@
 package elgatopro300.bbsfbx.model.fbx;
 
+import elgatopro300.bbsfbx.BBSFbxAddon;
+
 import mchorse.bbs_mod.bobj.BOBJAction;
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJBone;
@@ -12,9 +14,6 @@ import mchorse.bbs_mod.bobj.BOBJLoader.Face;
 import mchorse.bbs_mod.bobj.BOBJLoader.IndexGroup;
 import mchorse.bbs_mod.bobj.BOBJLoader.Vertex;
 import mchorse.bbs_mod.bobj.BOBJLoader.Weight;
-
-import mchorse.bbs_mod.resources.AssetProvider;
-import mchorse.bbs_mod.resources.Link;
 
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
@@ -82,12 +81,6 @@ public class FBXConverter
     /**
      * Converts an Assimp scene into BOBJData.
      */
-
-    private static boolean hasMeshNode(Map<Integer, String> meshNodeNames, String nodeName)
-    {
-        return meshNodeNames.containsValue(nodeName);
-    }
-
     public static BOBJData convert(AIScene scene)
     {
         List<Vertex> vertices = new ArrayList<>();
@@ -114,9 +107,10 @@ public class FBXConverter
         Map<String, AIBone> skinnedBones = new HashMap<>();
         Map<String, Integer> skinnedBoneMeshIndex = new HashMap<>();
         int numMeshes = scene.mNumMeshes();
+        PointerBuffer sceneMeshes = scene.mMeshes();
         for (int i = 0; i < numMeshes; i++)
         {
-            AIMesh aiMesh = AIMesh.create(scene.mMeshes().get(i));
+            AIMesh aiMesh = AIMesh.create(sceneMeshes.get(i));
             int numBones = aiMesh.mNumBones();
             for (int j = 0; j < numBones; j++)
             {
@@ -156,6 +150,10 @@ public class FBXConverter
         }
         else
         {
+            // Precompute the set of node names that actually carry a mesh, so the
+            // parent-link check below is O(1) instead of O(n) per object.
+            Set<String> nodesWithMesh = new HashSet<>(meshNodeNames.values());
+
             // One bone per object, named after the object, anchored at its
             // Blender origin so each mesh pivots around its own point.
             for (int i = 0; i < numMeshes; i++)
@@ -165,7 +163,7 @@ public class FBXConverter
 
                 String parentName = nodeParents.getOrDefault(objectName, "");
                 // Only keep the parent link if that parent is itself a bone.
-                if (!parentName.isEmpty() && !hasMeshNode(meshNodeNames, parentName))
+                if (!parentName.isEmpty() && !nodesWithMesh.contains(parentName))
                 {
                     parentName = "";
                 }
@@ -197,7 +195,7 @@ public class FBXConverter
 
         for (int i = 0; i < numMeshes; i++)
         {
-            AIMesh aiMesh = AIMesh.create(scene.mMeshes().get(i));
+            AIMesh aiMesh = AIMesh.create(sceneMeshes.get(i));
             String objectBoneName = meshNodeNames.getOrDefault(i, "object_" + i);
             processMesh(scene, aiMesh, i, vertices, textures, normals, meshes, globalArmature, globalScale[0], rootCorrection, offsetX, offsetY, offsetZ, meshTransforms, objectBoneName);
         }
@@ -395,7 +393,6 @@ public class FBXConverter
             {
                 meshRotationOnly.transformPosition(pos);
             }
-
 
             pos.mul(scaleFactor);
             rootCorrection.transformPosition(pos);
@@ -648,13 +645,11 @@ public class FBXConverter
                 AINodeAnim nodeAnim = AINodeAnim.create(aiAnimation.mChannels().get(c));
                 String nodeName = nodeAnim.mNodeName().dataString();
 
-
                 /* Only animate nodes that ended up as bones in the armature. */
                 if (!armature.bones.containsKey(nodeName))
                 {
                     continue;
                 }
-
 
                 /* Prefer the offset-matrix bind local; fall back to the raw node
                  * transform for bones that are animated but not skinned. */
@@ -669,20 +664,14 @@ public class FBXConverter
                 }
 
                 processNodeAnimation(nodeAnim, nodeName, rest, action, ticksPerSecond, globalScale);
-
-
-
-                processNodeAnimation(nodeAnim, nodeName, rest, action, ticksPerSecond, globalScale);
             }
 
             if (!action.groups.isEmpty())
             {
                 actions.put(name, action);
             }
-
         }
     }
-
 
     /*
      * Bakes a single node's animation channel into a BOBJGroup.
@@ -988,15 +977,22 @@ public class FBXConverter
     }
 
     /**
-     * Extracts embedded FBX textures (Blender's "Embed Textures" export option)
-     * into {@code <model>/textures/<material>/default.png}, matching where
-     * {@link mchorse.bbs_mod.cubic.model.loaders.IModelLoader#findMaterialTexture}
-     * looks. Skips materials whose texture is a plain external file reference
-     * (nothing to extract) and never overwrites a texture that's already there,
-     * so a user-supplied PNG always wins.
+     * Extracts the embedded diffuse texture for a single material (Blender's
+     * "Embed Textures" export option) into the given, already-resolved folder,
+     * writing {@code default.png}. The caller owns folder resolution so this
+     * always writes exactly where the loader later reads (fixing the stray
+     * temp-folder bug). Does nothing if the material has no embedded texture or
+     * the PNG already exists, so a user-supplied texture always wins.
+     *
+     * @return true if a texture was written or was already present.
      */
-    public static void extractEmbeddedTextures(AIScene scene, AssetProvider provider, Link model)
+    public static boolean extractEmbeddedTexture(AIScene scene, String materialName, File folder)
     {
+        if (folder == null || materialName == null || materialName.isEmpty())
+        {
+            return false;
+        }
+
         int numMaterials = scene.mNumMaterials();
 
         for (int i = 0; i < numMaterials; i++)
@@ -1004,14 +1000,14 @@ public class FBXConverter
             AIMaterial material = AIMaterial.create(scene.mMaterials().get(i));
 
             AIString nameStr = AIString.calloc();
-            String materialName = null;
+            String name = null;
             if (Assimp.aiGetMaterialString(material, Assimp.AI_MATKEY_NAME, 0, 0, nameStr) == Assimp.aiReturn_SUCCESS)
             {
-                materialName = nameStr.dataString();
+                name = nameStr.dataString();
             }
             nameStr.free();
 
-            if (materialName == null || materialName.isEmpty())
+            if (name == null || !name.equals(materialName))
             {
                 continue;
             }
@@ -1023,43 +1019,43 @@ public class FBXConverter
 
             if (texturePath == null || texturePath.isEmpty())
             {
-                continue;
+                return false;
             }
 
             AITexture aiTexture = resolveEmbeddedTexture(scene, texturePath);
-
             if (aiTexture == null)
             {
-                continue;
-            }
-
-            File folder = provider.getFile(model.combine("textures/" + materialName));
-            if (folder == null)
-            {
-                continue;
+                return false;
             }
 
             File targetFile = new File(folder, "default.png");
             if (targetFile.exists())
             {
-                continue;
+                return true;
             }
 
             try
             {
                 BufferedImage image = decodeEmbeddedTexture(aiTexture);
-
                 if (image != null)
                 {
-                    folder.mkdirs();
+                    if (!folder.isDirectory() && !folder.mkdirs())
+                    {
+                        throw new IOException("Could not create texture folder: " + folder.getPath());
+                    }
                     ImageIO.write(image, "png", targetFile);
+                    return true;
                 }
             }
             catch (Exception e)
             {
-                e.printStackTrace();
+                BBSFbxAddon.LOGGER.error("Failed to extract embedded texture for material \"{}\"", materialName, e);
             }
+
+            return false;
         }
+
+        return false;
     }
 
     /**

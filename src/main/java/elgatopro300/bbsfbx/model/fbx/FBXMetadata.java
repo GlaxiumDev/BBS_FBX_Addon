@@ -17,45 +17,25 @@ public class FBXMetadata
     {
         AIMetaData metadata = scene.mMetaData();
 
-        if (metadata != null)
+        if (metadata == null)
         {
-            System.out.println("[FBXMetadata] Found metadata properties: " + metadata.mNumProperties());
-
-            for (int i = 0; i < metadata.mNumProperties(); i++)
-            {
-                String key = metadata.mKeys().get(i).dataString();
-                AIMetaDataEntry entry = metadata.mValues().get(i);
-
-                if (key.equals("UpAxis"))
-                {
-                    this.upAxis = getInt(entry);
-                    System.out.println(" -> UpAxis: " + this.upAxis);
-                }
-                else if (key.equals("OriginalUpAxis"))
-                {
-                    this.originalUpAxis = getInt(entry);
-                    System.out.println(" -> OriginalUpAxis: " + this.originalUpAxis);
-                }
-                else if (key.equals("FrontAxis"))
-                {
-                    this.frontAxis = getInt(entry);
-                    System.out.println(" -> FrontAxis: " + this.frontAxis);
-                }
-                else if (key.equals("CoordAxis"))
-                {
-                    this.coordAxis = getInt(entry);
-                    System.out.println(" -> CoordAxis: " + this.coordAxis);
-                }
-                else if (key.equals("UnitScaleFactor"))
-                {
-                    this.unitScaleFactor = getDouble(entry);
-                    System.out.println(" -> UnitScaleFactor: " + this.unitScaleFactor);
-                }
-            }
+            return;
         }
-        else
+
+        for (int i = 0; i < metadata.mNumProperties(); i++)
         {
-            System.out.println("[FBXMetadata] No metadata found in this scene! Using defaults.");
+            String key = metadata.mKeys().get(i).dataString();
+            AIMetaDataEntry entry = metadata.mValues().get(i);
+
+            switch (key)
+            {
+                case "UpAxis" -> this.upAxis = getInt(entry);
+                case "OriginalUpAxis" -> this.originalUpAxis = getInt(entry);
+                case "FrontAxis" -> this.frontAxis = getInt(entry);
+                case "CoordAxis" -> this.coordAxis = getInt(entry);
+                case "UnitScaleFactor" -> this.unitScaleFactor = getDouble(entry);
+                default -> { /* ignored */ }
+            }
         }
     }
 
@@ -80,7 +60,7 @@ public class FBXMetadata
         }
         else if (entry.mType() == Assimp.AI_INT32)
         {
-            return (int) entry.mData(4).asIntBuffer().get(0);
+            return entry.mData(4).asIntBuffer().get(0);
         }
         return 0;
     }
