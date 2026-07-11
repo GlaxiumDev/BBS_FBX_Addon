@@ -5,12 +5,14 @@
   "name": "BBS Fbx Addon",
   "description": "Fbx model compatibility for BBS FS",
   "authors": [
-    "ElGatoPro300",
-    "Eleeter"
+    "Glaxium"
+  ],
+  "contributors": [
+    "ElGatoPro300 (original FBX addon)",
+    "mchorse & Wemppy (BBS / BBS-FS)"
   ],
   "contact": {
-    "homepage": "https://discord.gg/MAHVQBSce6",
-    "sources": "https://github.com/ElGatoPro300/bbs-fbx-addon"
+    "sources": "https://github.com/GlaxiumDev/BBS_FBX_Addon"
   },
   "license": "MIT",
   "icon": "assets/bbs_fbx/icon.png",
