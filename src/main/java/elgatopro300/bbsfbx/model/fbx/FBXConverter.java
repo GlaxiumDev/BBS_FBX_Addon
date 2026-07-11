@@ -24,6 +24,7 @@ import org.joml.Vector3f;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.assimp.AIAnimation;
 import org.lwjgl.assimp.AIBone;
+import org.lwjgl.assimp.AIColor4D;
 import org.lwjgl.assimp.AIMaterial;
 import org.lwjgl.assimp.AIMatrix4x4;
 import org.lwjgl.assimp.AIMesh;
@@ -1021,18 +1022,6 @@ public class FBXConverter
             String texturePath = result == Assimp.aiReturn_SUCCESS ? path.dataString() : null;
             path.free();
 
-            if (texturePath == null || texturePath.isEmpty())
-            {
-                continue;
-            }
-
-            AITexture aiTexture = resolveEmbeddedTexture(scene, texturePath);
-
-            if (aiTexture == null)
-            {
-                continue;
-            }
-
             File folder = provider.getFile(model.combine("textures/" + materialName));
             if (folder == null)
             {
@@ -1041,6 +1030,22 @@ public class FBXConverter
 
             File targetFile = new File(folder, "default.png");
             if (targetFile.exists())
+            {
+                continue;
+            }
+
+            /* No image texture on this material at all (i.e. a Blender
+             * material with just a flat Base Color, no texture node) - bake
+             * that flat color into a solid-color PNG instead. */
+            if (texturePath == null || texturePath.isEmpty())
+            {
+                writeSolidColorTexture(material, materialName, folder, targetFile);
+                continue;
+            }
+
+            AITexture aiTexture = resolveEmbeddedTexture(scene, texturePath);
+
+            if (aiTexture == null)
             {
                 continue;
             }
@@ -1060,6 +1065,60 @@ public class FBXConverter
                 e.printStackTrace();
             }
         }
+    }
+
+    /**
+     * Bakes a material's flat Base Color (read from Assimp's diffuse color
+     * slot, which is where Blender's Principled BSDF Base Color ends up when
+     * no image texture is connected) into a small solid-color PNG. Falls back
+     * to Assimp's PBR base-color key if the diffuse color isn't set.
+     */
+    private static void writeSolidColorTexture(AIMaterial material, String materialName, File folder, File targetFile)
+    {
+        AIColor4D color = AIColor4D.calloc();
+
+        try
+        {
+            int status = Assimp.aiGetMaterialColor(material, Assimp.AI_MATKEY_COLOR_DIFFUSE, Assimp.aiTextureType_NONE, 0, color);
+
+            if (status != Assimp.aiReturn_SUCCESS)
+            {
+                status = Assimp.aiGetMaterialColor(material, Assimp.AI_MATKEY_BASE_COLOR, Assimp.aiTextureType_NONE, 0, color);
+            }
+
+            if (status != Assimp.aiReturn_SUCCESS)
+            {
+                return;
+            }
+
+            int r = clampToByte(color.r());
+            int g = clampToByte(color.g());
+            int b = clampToByte(color.b());
+            int a = clampToByte(color.a());
+            int argb = (a << 24) | (r << 16) | (g << 8) | b;
+
+            int size = 16;
+            BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+            int[] pixels = new int[size * size];
+            java.util.Arrays.fill(pixels, argb);
+            image.setRGB(0, 0, size, size, pixels, 0, size);
+
+            folder.mkdirs();
+            ImageIO.write(image, "png", targetFile);
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+        }
+        finally
+        {
+            color.free();
+        }
+    }
+
+    private static int clampToByte(float value)
+    {
+        return Math.max(0, Math.min(255, Math.round(value * 255f)));
     }
 
     /**
