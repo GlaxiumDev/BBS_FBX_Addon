@@ -77,7 +77,7 @@ public class FBXMetadata
         }
         else if (entry.mType() == Assimp.AI_INT32)
         {
-            return entry.mData(4).asIntBuffer().get(0);
+            return (int) entry.mData(4).asIntBuffer().get(0);
         }
         return 0;
     }
