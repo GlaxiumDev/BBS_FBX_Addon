@@ -26,30 +26,27 @@ public class FBXMetadata
                 String key = metadata.mKeys().get(i).dataString();
                 AIMetaDataEntry entry = metadata.mValues().get(i);
 
-                if (key.equals("UpAxis"))
-                {
-                    this.upAxis = getInt(entry);
-                    System.out.println(" -> UpAxis: " + this.upAxis);
-                }
-                else if (key.equals("OriginalUpAxis"))
-                {
-                    this.originalUpAxis = getInt(entry);
-                    System.out.println(" -> OriginalUpAxis: " + this.originalUpAxis);
-                }
-                else if (key.equals("FrontAxis"))
-                {
-                    this.frontAxis = getInt(entry);
-                    System.out.println(" -> FrontAxis: " + this.frontAxis);
-                }
-                else if (key.equals("CoordAxis"))
-                {
-                    this.coordAxis = getInt(entry);
-                    System.out.println(" -> CoordAxis: " + this.coordAxis);
-                }
-                else if (key.equals("UnitScaleFactor"))
-                {
-                    this.unitScaleFactor = getDouble(entry);
-                    System.out.println(" -> UnitScaleFactor: " + this.unitScaleFactor);
+                switch (key) {
+                    case "UpAxis" -> {
+                        this.upAxis = getInt(entry);
+                        System.out.println(" -> UpAxis: " + this.upAxis);
+                    }
+                    case "OriginalUpAxis" -> {
+                        this.originalUpAxis = getInt(entry);
+                        System.out.println(" -> OriginalUpAxis: " + this.originalUpAxis);
+                    }
+                    case "FrontAxis" -> {
+                        this.frontAxis = getInt(entry);
+                        System.out.println(" -> FrontAxis: " + this.frontAxis);
+                    }
+                    case "CoordAxis" -> {
+                        this.coordAxis = getInt(entry);
+                        System.out.println(" -> CoordAxis: " + this.coordAxis);
+                    }
+                    case "UnitScaleFactor" -> {
+                        this.unitScaleFactor = getDouble(entry);
+                        System.out.println(" -> UnitScaleFactor: " + this.unitScaleFactor);
+                    }
                 }
             }
         }
@@ -80,7 +77,7 @@ public class FBXMetadata
         }
         else if (entry.mType() == Assimp.AI_INT32)
         {
-            return (int) entry.mData(4).asIntBuffer().get(0);
+            return entry.mData(4).asIntBuffer().get(0);
         }
         return 0;
     }
