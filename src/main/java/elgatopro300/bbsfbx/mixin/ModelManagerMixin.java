@@ -40,9 +40,9 @@ public class ModelManagerMixin
         String path = link.path;
 
         if (path.startsWith(ModelManager.MODELS_PREFIX)
-            && !path.contains("/animations/")
-            && !path.contains("/shapes/")
-            && path.toLowerCase().endsWith(".fbx"))
+                && !path.contains("/animations/")
+                && !path.contains("/shapes/")
+                && path.toLowerCase().endsWith(".fbx"))
         {
             info.setReturnValue(true);
         }

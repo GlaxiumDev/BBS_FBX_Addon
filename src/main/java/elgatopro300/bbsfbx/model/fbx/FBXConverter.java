@@ -1,7 +1,5 @@
 package elgatopro300.bbsfbx.model.fbx;
 
-import elgatopro300.bbsfbx.BBSFbxAddon;
-
 import mchorse.bbs_mod.bobj.BOBJAction;
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJBone;
@@ -15,6 +13,9 @@ import mchorse.bbs_mod.bobj.BOBJLoader.IndexGroup;
 import mchorse.bbs_mod.bobj.BOBJLoader.Vertex;
 import mchorse.bbs_mod.bobj.BOBJLoader.Weight;
 
+import mchorse.bbs_mod.resources.AssetProvider;
+import mchorse.bbs_mod.resources.Link;
+
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector2d;
@@ -23,7 +24,6 @@ import org.joml.Vector3f;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.assimp.AIAnimation;
 import org.lwjgl.assimp.AIBone;
-import org.lwjgl.assimp.AIColor4D;
 import org.lwjgl.assimp.AIMaterial;
 import org.lwjgl.assimp.AIMatrix4x4;
 import org.lwjgl.assimp.AIMesh;
@@ -82,6 +82,12 @@ public class FBXConverter
     /**
      * Converts an Assimp scene into BOBJData.
      */
+
+    private static boolean hasMeshNode(Map<Integer, String> meshNodeNames, String nodeName)
+    {
+        return meshNodeNames.containsValue(nodeName);
+    }
+
     public static BOBJData convert(AIScene scene)
     {
         List<Vertex> vertices = new ArrayList<>();
@@ -108,10 +114,9 @@ public class FBXConverter
         Map<String, AIBone> skinnedBones = new HashMap<>();
         Map<String, Integer> skinnedBoneMeshIndex = new HashMap<>();
         int numMeshes = scene.mNumMeshes();
-        PointerBuffer sceneMeshes = scene.mMeshes();
         for (int i = 0; i < numMeshes; i++)
         {
-            AIMesh aiMesh = AIMesh.create(sceneMeshes.get(i));
+            AIMesh aiMesh = AIMesh.create(scene.mMeshes().get(i));
             int numBones = aiMesh.mNumBones();
             for (int j = 0; j < numBones; j++)
             {
@@ -151,10 +156,6 @@ public class FBXConverter
         }
         else
         {
-            // Precompute the set of node names that actually carry a mesh, so the
-            // parent-link check below is O(1) instead of O(n) per object.
-            Set<String> nodesWithMesh = new HashSet<>(meshNodeNames.values());
-
             // One bone per object, named after the object, anchored at its
             // Blender origin so each mesh pivots around its own point.
             for (int i = 0; i < numMeshes; i++)
@@ -164,7 +165,7 @@ public class FBXConverter
 
                 String parentName = nodeParents.getOrDefault(objectName, "");
                 // Only keep the parent link if that parent is itself a bone.
-                if (!parentName.isEmpty() && !nodesWithMesh.contains(parentName))
+                if (!parentName.isEmpty() && !hasMeshNode(meshNodeNames, parentName))
                 {
                     parentName = "";
                 }
@@ -196,7 +197,7 @@ public class FBXConverter
 
         for (int i = 0; i < numMeshes; i++)
         {
-            AIMesh aiMesh = AIMesh.create(sceneMeshes.get(i));
+            AIMesh aiMesh = AIMesh.create(scene.mMeshes().get(i));
             String objectBoneName = meshNodeNames.getOrDefault(i, "object_" + i);
             processMesh(scene, aiMesh, i, vertices, textures, normals, meshes, globalArmature, globalScale[0], rootCorrection, offsetX, offsetY, offsetZ, meshTransforms, objectBoneName);
         }
@@ -394,6 +395,7 @@ public class FBXConverter
             {
                 meshRotationOnly.transformPosition(pos);
             }
+
 
             pos.mul(scaleFactor);
             rootCorrection.transformPosition(pos);
@@ -646,11 +648,13 @@ public class FBXConverter
                 AINodeAnim nodeAnim = AINodeAnim.create(aiAnimation.mChannels().get(c));
                 String nodeName = nodeAnim.mNodeName().dataString();
 
+
                 /* Only animate nodes that ended up as bones in the armature. */
                 if (!armature.bones.containsKey(nodeName))
                 {
                     continue;
                 }
+
 
                 /* Prefer the offset-matrix bind local; fall back to the raw node
                  * transform for bones that are animated but not skinned. */
@@ -665,14 +669,20 @@ public class FBXConverter
                 }
 
                 processNodeAnimation(nodeAnim, nodeName, rest, action, ticksPerSecond, globalScale);
+
+
+
+                processNodeAnimation(nodeAnim, nodeName, rest, action, ticksPerSecond, globalScale);
             }
 
             if (!action.groups.isEmpty())
             {
                 actions.put(name, action);
             }
+
         }
     }
+
 
     /*
      * Bakes a single node's animation channel into a BOBJGroup.
@@ -822,38 +832,7 @@ public class FBXConverter
             group.channels.add(sz);
         }
 
-        /* BBS FS's BOBJGroup#getDuration() is just the LAST keyframe's frame
-         * number, so a single-keyframe channel (common for a baked static
-         * pose) always reports duration 0 - and a 0-tick-long animation never
-         * plays. Duplicate the same pose onto a second keyframe one frame
-         * later so the clip has a real, non-zero duration and actually holds
-         * and plays instead of silently doing nothing. */
-        if (timeSet.size() == 1)
-        {
-            float holdFrame = tx.keyframes.get(0).frame + 1f;
-
-            for (BOBJChannel channel : group.channels)
-            {
-                duplicateLastKeyframe(channel, holdFrame);
-            }
-        }
-
         action.groups.put(nodeName, group);
-    }
-
-    /**
-     * Appends a copy of a channel's last keyframe at a new frame, so a
-     * single-keyframe (static pose) channel gets a real, non-zero duration.
-     */
-    private static void duplicateLastKeyframe(BOBJChannel channel, float frame)
-    {
-        if (channel.keyframes.isEmpty())
-        {
-            return;
-        }
-
-        float value = channel.keyframes.get(channel.keyframes.size() - 1).value;
-        channel.keyframes.add(new BOBJKeyframe(frame, value));
     }
 
     /**
@@ -1009,22 +988,15 @@ public class FBXConverter
     }
 
     /**
-     * Extracts the embedded diffuse texture for a single material (Blender's
-     * "Embed Textures" export option) into the given, already-resolved folder,
-     * writing {@code default.png}. The caller owns folder resolution so this
-     * always writes exactly where the loader later reads (fixing the stray
-     * temp-folder bug). Does nothing if the material has no embedded texture or
-     * the PNG already exists, so a user-supplied texture always wins.
-     *
-     * @return true if a texture was written or was already present.
+     * Extracts embedded FBX textures (Blender's "Embed Textures" export option)
+     * into {@code <model>/textures/<material>/default.png}, matching where
+     * {@link mchorse.bbs_mod.cubic.model.loaders.IModelLoader#findMaterialTexture}
+     * looks. Skips materials whose texture is a plain external file reference
+     * (nothing to extract) and never overwrites a texture that's already there,
+     * so a user-supplied PNG always wins.
      */
-    public static boolean extractEmbeddedTexture(AIScene scene, String materialName, File folder)
+    public static void extractEmbeddedTextures(AIScene scene, AssetProvider provider, Link model)
     {
-        if (folder == null || materialName == null || materialName.isEmpty())
-        {
-            return false;
-        }
-
         int numMaterials = scene.mNumMaterials();
 
         for (int i = 0; i < numMaterials; i++)
@@ -1032,14 +1004,14 @@ public class FBXConverter
             AIMaterial material = AIMaterial.create(scene.mMaterials().get(i));
 
             AIString nameStr = AIString.calloc();
-            String name = null;
+            String materialName = null;
             if (Assimp.aiGetMaterialString(material, Assimp.AI_MATKEY_NAME, 0, 0, nameStr) == Assimp.aiReturn_SUCCESS)
             {
-                name = nameStr.dataString();
+                materialName = nameStr.dataString();
             }
             nameStr.free();
 
-            if (name == null || !name.equals(materialName))
+            if (materialName == null || materialName.isEmpty())
             {
                 continue;
             }
@@ -1049,107 +1021,45 @@ public class FBXConverter
             String texturePath = result == Assimp.aiReturn_SUCCESS ? path.dataString() : null;
             path.free();
 
-            File targetFile = new File(folder, "default.png");
-            if (targetFile.exists())
-            {
-                return true;
-            }
-
-            /* No image texture on this material at all (i.e. a Blender material
-             * with just a flat Base Color, no texture node) - fall back to
-             * baking that flat color into a small solid-color PNG instead. */
             if (texturePath == null || texturePath.isEmpty())
             {
-                return writeSolidColorTexture(material, materialName, folder, targetFile);
+                continue;
             }
 
             AITexture aiTexture = resolveEmbeddedTexture(scene, texturePath);
+
             if (aiTexture == null)
             {
-                return false;
+                continue;
+            }
+
+            File folder = provider.getFile(model.combine("textures/" + materialName));
+            if (folder == null)
+            {
+                continue;
+            }
+
+            File targetFile = new File(folder, "default.png");
+            if (targetFile.exists())
+            {
+                continue;
             }
 
             try
             {
                 BufferedImage image = decodeEmbeddedTexture(aiTexture);
+
                 if (image != null)
                 {
-                    if (!folder.isDirectory() && !folder.mkdirs())
-                    {
-                        throw new IOException("Could not create texture folder: " + folder.getPath());
-                    }
+                    folder.mkdirs();
                     ImageIO.write(image, "png", targetFile);
-                    return true;
                 }
             }
             catch (Exception e)
             {
-                BBSFbxAddon.LOGGER.error("Failed to extract embedded texture for material \"{}\"", materialName, e);
+                e.printStackTrace();
             }
-
-            return false;
         }
-
-        return false;
-    }
-
-    /**
-     * Bakes a material's flat Base Color (read from Assimp's diffuse color
-     * slot, which is where Blender's Principled BSDF Base Color ends up when
-     * no image texture is connected) into a small solid-color PNG. Falls back
-     * to Assimp's PBR base-color key if the diffuse color isn't set.
-     *
-     * @return true if a solid-color texture was written or already present.
-     */
-    private static boolean writeSolidColorTexture(AIMaterial material, String materialName, File folder, File targetFile)
-    {
-        AIColor4D color = AIColor4D.calloc();
-        int status = Assimp.aiGetMaterialColor(material, Assimp.AI_MATKEY_COLOR_DIFFUSE, Assimp.aiTextureType_NONE, 0, color);
-
-        if (status != Assimp.aiReturn_SUCCESS)
-        {
-            status = Assimp.aiGetMaterialColor(material, Assimp.AI_MATKEY_BASE_COLOR, Assimp.aiTextureType_NONE, 0, color);
-        }
-
-        if (status != Assimp.aiReturn_SUCCESS)
-        {
-            color.free();
-            return false;
-        }
-
-        int r = clampToByte(color.r());
-        int g = clampToByte(color.g());
-        int b = clampToByte(color.b());
-        int a = clampToByte(color.a());
-        color.free();
-
-        int argb = (a << 24) | (r << 16) | (g << 8) | b;
-
-        try
-        {
-            int size = 16;
-            BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
-            int[] pixels = new int[size * size];
-            java.util.Arrays.fill(pixels, argb);
-            image.setRGB(0, 0, size, size, pixels, 0, size);
-
-            if (!folder.isDirectory() && !folder.mkdirs())
-            {
-                throw new IOException("Could not create texture folder: " + folder.getPath());
-            }
-            ImageIO.write(image, "png", targetFile);
-            return true;
-        }
-        catch (Exception e)
-        {
-            BBSFbxAddon.LOGGER.error("Failed to write solid-color texture for material \"{}\"", materialName, e);
-            return false;
-        }
-    }
-
-    private static int clampToByte(float value)
-    {
-        return Math.max(0, Math.min(255, Math.round(value * 255f)));
     }
 
     /**

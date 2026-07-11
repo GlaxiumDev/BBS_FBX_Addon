@@ -32,7 +32,6 @@ import org.lwjgl.assimp.AIPropertyStore;
 import org.lwjgl.assimp.AIScene;
 import org.lwjgl.assimp.Assimp;
 
-import java.io.File;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -110,178 +109,166 @@ public class FBXModelLoader implements IModelLoader
                 return null;
             }
 
-            // Keep the scene alive through the whole build; the material loop below
-            // reads embedded textures out of it, so it must not be released early.
+            BOBJData data;
             try
             {
-                BOBJData data = FBXConverter.convert(scene);
-
-                data.initiateArmatures();
-
-                /* BBS FS's BOBJModel takes one CompiledData per mesh (instead of
-                 * CML's single merged CompiledData), and FS's renderer reads the
-                 * material name from CompiledData.mesh, so each mesh is compiled
-                 * separately with its mesh reference attached. */
-                List<CompiledData> compiledMeshes = new ArrayList<>();
-
-                for (BOBJMesh mesh : data.meshes)
-                {
-                    compiledMeshes.add(this.compile(data, mesh));
-                }
-
-                BOBJArmature armature = null;
-                if (!data.armatures.isEmpty())
-                {
-                    armature = data.armatures.values().iterator().next();
-                }
-
-                if (armature == null)
-                {
-                    armature = new BOBJArmature("Armature");
-                    armature.initArmature();
-                }
-
-                BOBJModel bobjModel = new BOBJModel(armature, compiledMeshes, false);
-
-                Animations animations = new Animations(models.parser);
-
-                for (BOBJAction action : data.actions.values())
-                {
-                    Animation animation = new Animation(action.name, models.parser);
-                    animation.setLength(action.getDuration() / 20.0);
-
-                    for (BOBJGroup group : action.groups.values())
-                    {
-                        AnimationPart part = new AnimationPart(models.parser);
-
-                        for (BOBJChannel channel : group.channels)
-                        {
-                            KeyframeChannel<MolangExpression> targetChannel = switch (channel.path) {
-                                case "location.x" -> part.x;
-                                case "location.y" -> part.y;
-                                case "location.z" -> part.z;
-                                case "rotation.x" -> part.rx;
-                                case "rotation.y" -> part.ry;
-                                case "rotation.z" -> part.rz;
-                                case "scale.x" -> part.sx;
-                                case "scale.y" -> part.sy;
-                                case "scale.z" -> part.sz;
-                                default -> null;
-                            };
-
-                            if (targetChannel != null)
-                            {
-                                for (BOBJKeyframe kf : channel.keyframes)
-                                {
-                                    targetChannel.insert(kf.frame, new MolangValue(models.parser, new Constant(kf.value)));
-                                }
-                            }
-                        }
-
-                        animation.parts.put(group.name, part);
-                    }
-
-                    animations.add(animation);
-                }
-
-                Link textureLink = null;
-
-                /*
-                 Try to find texture from mesh data first
-                 */
-                if (!data.meshes.isEmpty() && data.meshes.get(0) instanceof FBXConverter.FBXMesh mesh)
-                {
-                    if (mesh.texture != null && !mesh.texture.isEmpty())
-                    {
-                        Link specificLink = model.combine(mesh.texture);
-                        if (links.contains(specificLink))
-                        {
-                            textureLink = specificLink;
-                        } else
-                        {
-                            for (Link l : links)
-                            {
-                                if (l.path.endsWith(mesh.texture))
-                                {
-                                    textureLink = l;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (textureLink == null)
-                {
-                    for (Link l : links)
-                    {
-                        String path = l.path.toLowerCase();
-
-                        if (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg"))
-                        {
-                            textureLink = l;
-                            break;
-                        }
-                    }
-                }
-
-                ModelInstance modelInstance = new ModelInstance(id, bobjModel, animations, textureLink);
-
-                /* In BBS FS each mesh is its own material (keyed by mesh name),
-                 * mirroring FS's BOBJModelLoader: register the material and try to
-                 * resolve a per-material texture folder; meshes without one fall
-                 * back to the model texture.
-                 *
-                 * Several meshes can share the same material name (e.g. multiple
-                 * Blender objects using one material), so materials are
-                 * deduplicated here - each unique name is only registered once. */
-                Set<String> registeredMaterials = new HashSet<>();
-
-                for (CompiledData mesh : compiledMeshes)
-                {
-                    String material = mesh.mesh.name;
-
-                    if (material == null || material.isEmpty() || !registeredMaterials.add(material))
-                    {
-                        continue;
-                    }
-
-                    modelInstance.materials.add(material);
-
-                    /* Always ensure the real, loader-resolved material folder exists.
-                     * This doubles as the fix for the "model won't load until a
-                     * folder is created" discovery bug, since a subfolder now always
-                     * exists. Then extract any embedded texture INTO that exact
-                     * folder, so nothing ends up in a stray temp directory. */
-                    IModelLoader.ensureMaterialFolder(models.provider, model, material);
-                    File matFolder = models.provider.getFile(model.combine("textures/" + material));
-                    boolean extracted = FBXConverter.extractEmbeddedTexture(scene, material, matFolder);
-
-                    Link materialTexture = IModelLoader.findMaterialTexture(links, model, material);
-
-                    /* findMaterialTexture only sees files that existed in `links`
-                     * BEFORE this FBX import ran, so it can never see a texture
-                     * (embedded or baked solid-color) we just wrote above on this
-                     * very load. Resolve that Link directly instead of waiting
-                     * for a second load/rescan to pick it up. */
-                    if (materialTexture == null && extracted)
-                    {
-                        materialTexture = model.combine("textures/" + material + "/default.png");
-                    }
-
-                    if (materialTexture != null)
-                    {
-                        modelInstance.materialTextures.put(material, materialTexture);
-                    }
-                }
-
-                modelInstance.applyConfig(config);
-                return modelInstance;
-            }
-            finally
+                data = FBXConverter.convert(scene);
+                FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
+            } finally
             {
                 Assimp.aiReleaseImport(scene);
             }
+
+            data.initiateArmatures();
+
+            /* BBS FS's BOBJModel takes one CompiledData per mesh (instead of
+             * CML's single merged CompiledData), and FS's renderer reads the
+             * material name from CompiledData.mesh, so each mesh is compiled
+             * separately with its mesh reference attached. */
+            List<CompiledData> compiledMeshes = new ArrayList<>();
+
+            for (BOBJMesh mesh : data.meshes)
+            {
+                compiledMeshes.add(this.compile(data, mesh));
+            }
+
+            BOBJArmature armature = null;
+            if (!data.armatures.isEmpty())
+            {
+                armature = data.armatures.values().iterator().next();
+            }
+
+            if (armature == null)
+            {
+                armature = new BOBJArmature("Armature");
+                armature.initArmature();
+            }
+
+            BOBJModel bobjModel = new BOBJModel(armature, compiledMeshes, false);
+
+            Animations animations = new Animations(models.parser);
+
+            for (BOBJAction action : data.actions.values())
+            {
+                Animation animation = new Animation(action.name, models.parser);
+                animation.setLength(action.getDuration() / 20.0);
+
+                for (BOBJGroup group : action.groups.values())
+                {
+                    AnimationPart part = new AnimationPart(models.parser);
+
+                    for (BOBJChannel channel : group.channels)
+                    {
+                        KeyframeChannel<MolangExpression> targetChannel = switch (channel.path) {
+                            case "location.x" -> part.x;
+                            case "location.y" -> part.y;
+                            case "location.z" -> part.z;
+                            case "rotation.x" -> part.rx;
+                            case "rotation.y" -> part.ry;
+                            case "rotation.z" -> part.rz;
+                            case "scale.x" -> part.sx;
+                            case "scale.y" -> part.sy;
+                            case "scale.z" -> part.sz;
+                            default -> null;
+                        };
+
+                        if (targetChannel != null)
+                        {
+                            for (BOBJKeyframe kf : channel.keyframes)
+                            {
+                                targetChannel.insert(kf.frame, new MolangValue(models.parser, new Constant(kf.value)));
+                            }
+                        }
+                    }
+
+                    animation.parts.put(group.name, part);
+                }
+
+                animations.add(animation);
+            }
+
+            Link textureLink = null;
+
+            /*
+             Try to find texture from mesh data first
+             */
+            if (!data.meshes.isEmpty() && data.meshes.get(0) instanceof FBXConverter.FBXMesh mesh)
+            {
+
+                if (mesh.texture != null && !mesh.texture.isEmpty())
+                {
+                    Link specificLink = model.combine(mesh.texture);
+                    if (links.contains(specificLink))
+                    {
+                        textureLink = specificLink;
+                    } else
+                    {
+                        for (Link l : links)
+                        {
+                            if (l.path.endsWith(mesh.texture))
+                            {
+                                textureLink = l;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (textureLink == null)
+            {
+                for (Link l : links)
+                {
+                    String path = l.path.toLowerCase();
+
+                    if (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg"))
+                    {
+                        textureLink = l;
+                        break;
+                    }
+                }
+            }
+
+            ModelInstance modelInstance = new ModelInstance(id, bobjModel, animations, textureLink);
+
+            /* In BBS FS each mesh is its own material (keyed by mesh name),
+             * mirroring FS's BOBJModelLoader: register the material and try to
+             * resolve a per-material texture folder; meshes without one fall
+             * back to the model texture.
+             *
+             * Several meshes can share the same material name (e.g. multiple
+             * Blender objects using one material), so materials are
+             * deduplicated here - each unique name is only registered once.
+             * Without this, the material texture picker would list the same
+             * material once per mesh that uses it. */
+            Set<String> registeredMaterials = new HashSet<>();
+
+            for (CompiledData mesh : compiledMeshes)
+            {
+                String material = mesh.mesh.name;
+
+                if (material == null || material.isEmpty() || !registeredMaterials.add(material))
+                {
+                    continue;
+                }
+
+                modelInstance.materials.add(material);
+
+                Link materialTexture = IModelLoader.findMaterialTexture(links, model, material);
+
+                if (materialTexture != null)
+                {
+                    modelInstance.materialTextures.put(material, materialTexture);
+                }
+                else
+                {
+                    IModelLoader.ensureMaterialFolder(models.provider, model, material);
+                }
+            }
+
+            modelInstance.applyConfig(config);
+            return modelInstance;
+
         }
         catch (Throwable e)
         {
@@ -310,10 +297,11 @@ public class FBXModelLoader implements IModelLoader
         int[] bones = new int[totalVertices * 4];
         int[] indices = new int[totalVertices];
 
-        int vIndex = 0;  // Vertex index
-        int wIndex = 0;  // Weight/Bone index (x4)
-        int pIndex = 0;  // Position/Normal index (x3)
-        int tIndex = 0;  // Texture index (x2)
+
+        int vIndex = 0;  // >> Vertex index */
+        int wIndex = 0;  // >> Weight/Bone index (x4) */
+        int pIndex = 0;  // >> Position/Normal index (x3) */
+        int tIndex = 0;  // >> Texture index (x2) */
 
         for (BOBJLoader.Face face : mesh.faces)
         {
