@@ -23,6 +23,7 @@ import org.joml.Vector3f;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.assimp.AIAnimation;
 import org.lwjgl.assimp.AIBone;
+import org.lwjgl.assimp.AIColor4D;
 import org.lwjgl.assimp.AIMaterial;
 import org.lwjgl.assimp.AIMatrix4x4;
 import org.lwjgl.assimp.AIMesh;
@@ -821,7 +822,38 @@ public class FBXConverter
             group.channels.add(sz);
         }
 
+        /* BBS FS's BOBJGroup#getDuration() is just the LAST keyframe's frame
+         * number, so a single-keyframe channel (common for a baked static
+         * pose) always reports duration 0 - and a 0-tick-long animation never
+         * plays. Duplicate the same pose onto a second keyframe one frame
+         * later so the clip has a real, non-zero duration and actually holds
+         * and plays instead of silently doing nothing. */
+        if (timeSet.size() == 1)
+        {
+            float holdFrame = tx.keyframes.get(0).frame + 1f;
+
+            for (BOBJChannel channel : group.channels)
+            {
+                duplicateLastKeyframe(channel, holdFrame);
+            }
+        }
+
         action.groups.put(nodeName, group);
+    }
+
+    /**
+     * Appends a copy of a channel's last keyframe at a new frame, so a
+     * single-keyframe (static pose) channel gets a real, non-zero duration.
+     */
+    private static void duplicateLastKeyframe(BOBJChannel channel, float frame)
+    {
+        if (channel.keyframes.isEmpty())
+        {
+            return;
+        }
+
+        float value = channel.keyframes.get(channel.keyframes.size() - 1).value;
+        channel.keyframes.add(new BOBJKeyframe(frame, value));
     }
 
     /**
@@ -1017,21 +1049,24 @@ public class FBXConverter
             String texturePath = result == Assimp.aiReturn_SUCCESS ? path.dataString() : null;
             path.free();
 
+            File targetFile = new File(folder, "default.png");
+            if (targetFile.exists())
+            {
+                return true;
+            }
+
+            /* No image texture on this material at all (i.e. a Blender material
+             * with just a flat Base Color, no texture node) - fall back to
+             * baking that flat color into a small solid-color PNG instead. */
             if (texturePath == null || texturePath.isEmpty())
             {
-                return false;
+                return writeSolidColorTexture(material, materialName, folder, targetFile);
             }
 
             AITexture aiTexture = resolveEmbeddedTexture(scene, texturePath);
             if (aiTexture == null)
             {
                 return false;
-            }
-
-            File targetFile = new File(folder, "default.png");
-            if (targetFile.exists())
-            {
-                return true;
             }
 
             try
@@ -1056,6 +1091,65 @@ public class FBXConverter
         }
 
         return false;
+    }
+
+    /**
+     * Bakes a material's flat Base Color (read from Assimp's diffuse color
+     * slot, which is where Blender's Principled BSDF Base Color ends up when
+     * no image texture is connected) into a small solid-color PNG. Falls back
+     * to Assimp's PBR base-color key if the diffuse color isn't set.
+     *
+     * @return true if a solid-color texture was written or already present.
+     */
+    private static boolean writeSolidColorTexture(AIMaterial material, String materialName, File folder, File targetFile)
+    {
+        AIColor4D color = AIColor4D.calloc();
+        int status = Assimp.aiGetMaterialColor(material, Assimp.AI_MATKEY_COLOR_DIFFUSE, Assimp.aiTextureType_NONE, 0, color);
+
+        if (status != Assimp.aiReturn_SUCCESS)
+        {
+            status = Assimp.aiGetMaterialColor(material, Assimp.AI_MATKEY_BASE_COLOR, Assimp.aiTextureType_NONE, 0, color);
+        }
+
+        if (status != Assimp.aiReturn_SUCCESS)
+        {
+            color.free();
+            return false;
+        }
+
+        int r = clampToByte(color.r());
+        int g = clampToByte(color.g());
+        int b = clampToByte(color.b());
+        int a = clampToByte(color.a());
+        color.free();
+
+        int argb = (a << 24) | (r << 16) | (g << 8) | b;
+
+        try
+        {
+            int size = 16;
+            BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+            int[] pixels = new int[size * size];
+            java.util.Arrays.fill(pixels, argb);
+            image.setRGB(0, 0, size, size, pixels, 0, size);
+
+            if (!folder.isDirectory() && !folder.mkdirs())
+            {
+                throw new IOException("Could not create texture folder: " + folder.getPath());
+            }
+            ImageIO.write(image, "png", targetFile);
+            return true;
+        }
+        catch (Exception e)
+        {
+            BBSFbxAddon.LOGGER.error("Failed to write solid-color texture for material \"{}\"", materialName, e);
+            return false;
+        }
+    }
+
+    private static int clampToByte(float value)
+    {
+        return Math.max(0, Math.min(255, Math.round(value * 255f)));
     }
 
     /**

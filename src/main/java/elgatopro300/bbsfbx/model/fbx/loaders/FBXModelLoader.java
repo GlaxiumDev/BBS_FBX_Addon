@@ -148,12 +148,7 @@ public class FBXModelLoader implements IModelLoader
                 for (BOBJAction action : data.actions.values())
                 {
                     Animation animation = new Animation(action.name, models.parser);
-
-                    // A single keyframe (or all keys at frame 0) yields duration 0,
-                    // which makes a zero-length clip that never plays. Floor to at
-                    // least 1 frame so a static/single-frame pose still renders.
-                    float duration = Math.max(action.getDuration(), 1f);
-                    animation.setLength(duration / 20.0);
+                    animation.setLength(action.getDuration() / 20.0);
 
                     for (BOBJGroup group : action.groups.values())
                     {
@@ -260,9 +255,19 @@ public class FBXModelLoader implements IModelLoader
                      * folder, so nothing ends up in a stray temp directory. */
                     IModelLoader.ensureMaterialFolder(models.provider, model, material);
                     File matFolder = models.provider.getFile(model.combine("textures/" + material));
-                    FBXConverter.extractEmbeddedTexture(scene, material, matFolder);
+                    boolean extracted = FBXConverter.extractEmbeddedTexture(scene, material, matFolder);
 
                     Link materialTexture = IModelLoader.findMaterialTexture(links, model, material);
+
+                    /* findMaterialTexture only sees files that existed in `links`
+                     * BEFORE this FBX import ran, so it can never see a texture
+                     * (embedded or baked solid-color) we just wrote above on this
+                     * very load. Resolve that Link directly instead of waiting
+                     * for a second load/rescan to pick it up. */
+                    if (materialTexture == null && extracted)
+                    {
+                        materialTexture = model.combine("textures/" + material + "/default.png");
+                    }
 
                     if (materialTexture != null)
                     {
