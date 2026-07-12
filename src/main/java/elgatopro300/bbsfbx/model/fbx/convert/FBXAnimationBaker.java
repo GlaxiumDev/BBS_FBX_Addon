@@ -20,9 +20,7 @@ import org.lwjgl.assimp.AIScene;
 import org.lwjgl.assimp.AIVector3D;
 import org.lwjgl.assimp.AIVectorKey;
 
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Bakes every Assimp animation clip in the scene into a {@link BOBJAction},
@@ -283,6 +281,13 @@ public final class FBXAnimationBaker
             }
         }
 
+        /* Baking wrote one keyframe per integer frame; collapse runs of
+         * straight/flat motion so a still bone keeps ~2 keys instead of dozens.
+         * Endpoints are preserved, so clip duration is unchanged. */
+        simplifyChannel(tx); simplifyChannel(ty); simplifyChannel(tz);
+        simplifyChannel(rx); simplifyChannel(ry); simplifyChannel(rz);
+        simplifyChannel(sx); simplifyChannel(sy); simplifyChannel(sz);
+
         group.channels.add(tx);
         group.channels.add(ty);
         group.channels.add(tz);
@@ -301,6 +306,72 @@ public final class FBXAnimationBaker
         }
 
         action.groups.put(nodeName, group);
+    }
+
+    /** Deviation (in baked channel units) below which a keyframe is considered
+     *  redundant and dropped. ~0.006 degrees / 0.1 mm — visually lossless. */
+    private static final float SIMPLIFY_EPSILON = 1e-4f;
+
+    /**
+     * Removes keyframes that lie on a straight line between retained neighbors,
+     * so constant or linearly-ramping runs collapse to their endpoints. Uses an
+     * anchor-and-extend pass: a segment grows as long as EVERY skipped keyframe
+     * stays within {@link #SIMPLIFY_EPSILON} of the anchor→candidate line, which
+     * (unlike naive neighbor collinearity) prevents error accumulating across a
+     * smooth curve. First and last keyframes are always kept.
+     */
+    private static void simplifyChannel(BOBJChannel channel)
+    {
+        List<BOBJKeyframe> kfs = channel.keyframes;
+        int n = kfs.size();
+        if (n <= 2)
+        {
+            return;
+        }
+
+        List<BOBJKeyframe> result = new ArrayList<>();
+        result.add(kfs.get(0));
+
+        int anchor = 0;
+        int j = 1;
+
+        while (j < n)
+        {
+            BOBJKeyframe a = kfs.get(anchor);
+            BOBJKeyframe b = kfs.get(j);
+            float span = b.frame - a.frame;
+
+            boolean straight = true;
+            for (int k = anchor + 1; k < j; k++)
+            {
+                BOBJKeyframe c = kfs.get(k);
+                float expected = span == 0f
+                        ? a.value
+                        : a.value + (b.value - a.value) * ((c.frame - a.frame) / span);
+
+                if (Math.abs(c.value - expected) > SIMPLIFY_EPSILON)
+                {
+                    straight = false;
+                    break;
+                }
+            }
+
+            if (straight)
+            {
+                j++;
+            }
+            else
+            {
+                result.add(kfs.get(j - 1));
+                anchor = j - 1;
+                j = anchor + 1;
+            }
+        }
+
+        result.add(kfs.get(n - 1));
+
+        channel.keyframes.clear();
+        channel.keyframes.addAll(result);
     }
 
     /**
