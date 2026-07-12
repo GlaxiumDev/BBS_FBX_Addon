@@ -12,6 +12,7 @@ import org.lwjgl.assimp.AINode;
 import org.lwjgl.assimp.AIScene;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -74,11 +75,6 @@ public final class FBXArmatureBuilder
         return boneMeshRotations;
     }
 
-    private static boolean hasMeshNode(Map<Integer, String> meshNodeNames, String nodeName)
-    {
-        return meshNodeNames.containsValue(nodeName);
-    }
-
     /**
      * Non-skinned path: gives every mesh its own bone, named after its
      * source object, anchored at that object's Blender origin (requires
@@ -86,6 +82,11 @@ public final class FBXArmatureBuilder
      */
     public static void buildObjectBones(BOBJArmature armature, int numMeshes, Map<Integer, String> meshNodeNames, Map<String, String> nodeParents, Map<Integer, Matrix4f> meshTransforms, Matrix4f rootCorrection, float globalScale)
     {
+        /* Precomputed once (O(n)) instead of scanning meshNodeNames.values()
+         * per mesh via containsValue, which was O(n) per lookup and O(n^2)
+         * overall across all n objects. */
+        Set<String> meshOwningNodes = new HashSet<>(meshNodeNames.values());
+
         for (int i = 0; i < numMeshes; i++)
         {
             String objectName = meshNodeNames.getOrDefault(i, "object_" + i);
@@ -93,7 +94,7 @@ public final class FBXArmatureBuilder
 
             String parentName = nodeParents.getOrDefault(objectName, "");
             // Only keep the parent link if that parent is itself a bone.
-            if (!parentName.isEmpty() && !hasMeshNode(meshNodeNames, parentName))
+            if (!parentName.isEmpty() && !meshOwningNodes.contains(parentName))
             {
                 parentName = "";
             }

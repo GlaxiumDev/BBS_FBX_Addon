@@ -81,7 +81,8 @@ public class FBXConverter
 
         Map<Integer, String> meshNodeNames = new HashMap<>();
         Map<String, String> nodeParents = new HashMap<>();
-        Map<Integer, Matrix4f> meshTransforms = FBXSceneWalker.collectMeshTransforms(rootNode, meshNodeNames, nodeParents);
+        Map<String, Matrix4f> nodeLocals = new HashMap<>();
+        Map<Integer, Matrix4f> meshTransforms = FBXSceneWalker.collectMeshTransforms(rootNode, meshNodeNames, nodeParents, nodeLocals);
 
         Map<String, Integer> skinnedBoneMeshIndex = new HashMap<>();
         Map<String, AIBone> skinnedBones = FBXArmatureBuilder.collectSkinnedBones(scene, skinnedBoneMeshIndex);
@@ -136,9 +137,6 @@ public class FBXConverter
          * armature's bone names. */
         if (scene.mNumAnimations() > 0 && !skinnedBones.isEmpty())
         {
-            Map<String, Matrix4f> nodeLocals = new HashMap<>();
-            FBXSceneWalker.collectNodeLocals(rootNode, nodeLocals);
-
             Map<String, Matrix4f> bindLocals = FBXAnimationBaker.computeBindLocals(skinnedBones, globalArmature);
 
             FBXAnimationBaker.processAnimations(scene, actions, globalArmature, nodeLocals, bindLocals, globalScale[0]);

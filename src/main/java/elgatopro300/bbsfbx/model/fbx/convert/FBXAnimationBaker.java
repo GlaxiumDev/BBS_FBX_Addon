@@ -20,6 +20,7 @@ import org.lwjgl.assimp.AIScene;
 import org.lwjgl.assimp.AIVector3D;
 import org.lwjgl.assimp.AIVectorKey;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeSet;
@@ -280,6 +281,25 @@ public final class FBXAnimationBaker
         action.groups.put(nodeName, group);
     }
 
+    /**
+     * Finds i such that times[i] <= time < times[i+1], via binary search
+     * (times is sorted ascending - Assimp stores keyframes in time order).
+     * Caller must ensure times[0] < time < times[n-1]; the boundary cases
+     * are handled by the early-returns in interpolateVector/interpolateQuat,
+     * so i and i+1 are always valid indices here.
+     */
+    private static int findSegmentStart(double[] times, double time)
+    {
+        int result = Arrays.binarySearch(times, time);
+        if (result >= 0)
+        {
+            return result;
+        }
+
+        int insertionPoint = -result - 1;
+        return insertionPoint - 1;
+    }
+
     private static Vector3f interpolateVector(double[] times, Vector3f[] values, double time)
     {
         int n = times.length;
@@ -288,19 +308,12 @@ public final class FBXAnimationBaker
         if (time <= times[0]) return new Vector3f(values[0]);
         if (time >= times[n - 1]) return new Vector3f(values[n - 1]);
 
-        for (int i = 0; i < n - 1; i++)
-        {
-            if (time >= times[i] && time <= times[i + 1])
-            {
-                double span = times[i + 1] - times[i];
-                float factor = span <= 0 ? 0f : (float) ((time - times[i]) / span);
-                Vector3f result = new Vector3f(values[i]);
-                result.lerp(values[i + 1], factor);
-                return result;
-            }
-        }
-
-        return new Vector3f(values[n - 1]);
+        int i = findSegmentStart(times, time);
+        double span = times[i + 1] - times[i];
+        float factor = span <= 0 ? 0f : (float) ((time - times[i]) / span);
+        Vector3f result = new Vector3f(values[i]);
+        result.lerp(values[i + 1], factor);
+        return result;
     }
 
     private static Quaternionf interpolateQuat(double[] times, Quaternionf[] values, double time)
@@ -311,19 +324,12 @@ public final class FBXAnimationBaker
         if (time <= times[0]) return new Quaternionf(values[0]);
         if (time >= times[n - 1]) return new Quaternionf(values[n - 1]);
 
-        for (int i = 0; i < n - 1; i++)
-        {
-            if (time >= times[i] && time <= times[i + 1])
-            {
-                double span = times[i + 1] - times[i];
-                float factor = span <= 0 ? 0f : (float) ((time - times[i]) / span);
-                Quaternionf result = new Quaternionf(values[i]);
-                result.slerp(values[i + 1], factor);
-                return result.normalize();
-            }
-        }
-
-        return new Quaternionf(values[n - 1]);
+        int i = findSegmentStart(times, time);
+        double span = times[i + 1] - times[i];
+        float factor = span <= 0 ? 0f : (float) ((time - times[i]) / span);
+        Quaternionf result = new Quaternionf(values[i]);
+        result.slerp(values[i + 1], factor);
+        return result.normalize();
     }
 
     /**

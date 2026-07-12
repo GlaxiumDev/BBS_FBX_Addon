@@ -227,6 +227,12 @@ public final class FBXTextureExtractor
             ByteBuffer raw = MemoryUtil.memByteBuffer(pcDataAddress, texelCount * 4);
             BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
 
+            /* Build the whole ARGB array first and write it in one batched
+             * setRGB call. A per-pixel setRGB(x, y, rgb) round-trips through
+             * the image's raster/color model on every call - for a
+             * 1024x1024 embedded texture that's 1M+ individual calls instead
+             * of one. */
+            int[] pixels = new int[texelCount];
             for (int i = 0; i < texelCount; i++)
             {
                 int b = raw.get(i * 4) & 0xFF;
@@ -234,8 +240,9 @@ public final class FBXTextureExtractor
                 int r = raw.get(i * 4 + 2) & 0xFF;
                 int a = raw.get(i * 4 + 3) & 0xFF;
 
-                image.setRGB(i % width, i / width, (a << 24) | (r << 16) | (g << 8) | b);
+                pixels[i] = (a << 24) | (r << 16) | (g << 8) | b;
             }
+            image.setRGB(0, 0, width, height, pixels, 0, width);
 
             return image;
         }
