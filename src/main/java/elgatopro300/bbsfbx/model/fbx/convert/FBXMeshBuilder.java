@@ -22,6 +22,7 @@ import org.lwjgl.assimp.AIString;
 import org.lwjgl.assimp.AIVector3D;
 import org.lwjgl.assimp.AIVertexWeight;
 import org.lwjgl.assimp.Assimp;
+import org.lwjgl.assimp.AIColor4D;
 
 import java.nio.IntBuffer;
 import java.util.List;
@@ -225,6 +226,24 @@ public final class FBXMeshBuilder
             }
 
             path.free();
+
+            /* No image texture on this material: capture its flat diffuse/base
+             * color so the loader can hand BBS a synthetic color texture Link
+             * (LinkUtils.color) instead of baking a PNG to disk. */
+            if (mesh.texture == null)
+            {
+                AIColor4D color = AIColor4D.calloc();
+                int status = Assimp.aiGetMaterialColor(material, Assimp.AI_MATKEY_COLOR_DIFFUSE, Assimp.aiTextureType_NONE, 0, color);
+                if (status != Assimp.aiReturn_SUCCESS)
+                {
+                    status = Assimp.aiGetMaterialColor(material, Assimp.AI_MATKEY_BASE_COLOR, Assimp.aiTextureType_NONE, 0, color);
+                }
+                if (status == Assimp.aiReturn_SUCCESS)
+                {
+                    mesh.color = new float[] { color.r(), color.g(), color.b() };
+                }
+                color.free();
+            }
         }
 
         meshes.add(mesh);

@@ -3,7 +3,6 @@ package elgatopro300.bbsfbx.model.fbx.convert;
 import mchorse.bbs_mod.resources.AssetProvider;
 import mchorse.bbs_mod.resources.Link;
 
-import org.lwjgl.assimp.AIColor4D;
 import org.lwjgl.assimp.AIMaterial;
 import org.lwjgl.assimp.AIScene;
 import org.lwjgl.assimp.AIString;
@@ -18,7 +17,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
-import java.util.Arrays;
 
 /**
  * Extracts embedded FBX textures (Blender's "Embed Textures" export option)
@@ -72,7 +70,8 @@ public final class FBXTextureExtractor
 
             if (texturePath == null || texturePath.isEmpty())
             {
-                writeSolidColorTexture(material, folder, targetFile);
+                /* Flat-color material: handled at load time via a synthetic
+                 * color Link in FBXTextureResolver, nothing to write here. */
                 continue;
             }
 
@@ -98,54 +97,6 @@ public final class FBXTextureExtractor
                 e.printStackTrace();
             }
         }
-    }
-
-    private static void writeSolidColorTexture(AIMaterial material, File folder, File targetFile)
-    {
-        AIColor4D color = AIColor4D.calloc();
-
-        try
-        {
-            int status = Assimp.aiGetMaterialColor(material, Assimp.AI_MATKEY_COLOR_DIFFUSE, Assimp.aiTextureType_NONE, 0, color);
-
-            if (status != Assimp.aiReturn_SUCCESS)
-            {
-                status = Assimp.aiGetMaterialColor(material, Assimp.AI_MATKEY_BASE_COLOR, Assimp.aiTextureType_NONE, 0, color);
-            }
-
-            if (status != Assimp.aiReturn_SUCCESS)
-            {
-                return;
-            }
-
-            int r = clampToByte(color.r());
-            int g = clampToByte(color.g());
-            int b = clampToByte(color.b());
-            int a = clampToByte(color.a());
-            int argb = (a << 24) | (r << 16) | (g << 8) | b;
-
-            int size = 16;
-            BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
-            int[] pixels = new int[size * size];
-            Arrays.fill(pixels, argb);
-            image.setRGB(0, 0, size, size, pixels, 0, size);
-
-            folder.mkdirs();
-            ImageIO.write(image, "png", targetFile);
-        }
-        catch (Exception e)
-        {
-            e.printStackTrace();
-        }
-        finally
-        {
-            color.free();
-        }
-    }
-
-    private static int clampToByte(float value)
-    {
-        return Math.max(0, Math.min(255, Math.round(value * 255f)));
     }
 
     private static AITexture resolveEmbeddedTexture(AIScene scene, String texturePath)

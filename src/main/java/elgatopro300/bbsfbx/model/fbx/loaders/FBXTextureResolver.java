@@ -8,6 +8,7 @@ import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.model.loaders.IModelLoader;
 import mchorse.bbs_mod.resources.AssetProvider;
 import mchorse.bbs_mod.resources.Link;
+import mchorse.bbs_mod.utils.resources.LinkUtils;
 
 import java.util.Collection;
 import java.util.HashSet;
@@ -93,6 +94,14 @@ public final class FBXTextureResolver
             modelInstance.materials.add(material);
 
             Link materialTexture = IModelLoader.findMaterialTexture(links, model, material);
+
+            /* No texture folder/file: if the FBX material carried a flat
+             * color, resolve it to a synthetic color Link straight from the
+             * FBX (no PNG written to disk). */
+            if (materialTexture == null && mesh.mesh instanceof FBXMesh fbx && fbx.color != null)
+            {
+                materialTexture = LinkUtils.color(fbx.color[0], fbx.color[1], fbx.color[2]);
+            }
 
             if (materialTexture != null)
             {
