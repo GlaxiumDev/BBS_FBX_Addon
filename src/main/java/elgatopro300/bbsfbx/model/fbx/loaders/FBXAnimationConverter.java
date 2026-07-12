@@ -31,7 +31,9 @@ public final class FBXAnimationConverter
         for (BOBJAction action : actions.values())
         {
             Animation animation = new Animation(action.name, parser);
-            animation.setLength(action.getDuration() / 20.0);
+            /* +epsilon so BBS's floor(getLength()*20) loop length never rounds
+             * down and drops the final baked frame. */
+            animation.setLength(action.getDuration() / 20.0 + 1e-3);
 
             for (BOBJGroup group : action.groups.values())
             {

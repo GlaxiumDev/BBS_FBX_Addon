@@ -23,7 +23,6 @@ import org.lwjgl.assimp.AIVectorKey;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.TreeSet;
 
 /**
  * Bakes every Assimp animation clip in the scene into a {@link BOBJAction},
@@ -192,15 +191,21 @@ public final class FBXAnimationBaker
         rest.getUnnormalizedRotation(restR);
         restR.normalize();
 
-        TreeSet<Double> timeSet = new TreeSet<>();
-        for (double t : posTimes) timeSet.add(t);
-        for (double t : rotTimes) timeSet.add(t);
-        for (double t : scaleTimes) timeSet.add(t);
+        double maxTime = 0.0;
+        if (posTimes.length > 0) maxTime = Math.max(maxTime, posTimes[posTimes.length - 1]);
+        if (rotTimes.length > 0) maxTime = Math.max(maxTime, rotTimes[rotTimes.length - 1]);
+        if (scaleTimes.length > 0) maxTime = Math.max(maxTime, scaleTimes[scaleTimes.length - 1]);
 
-        if (timeSet.isEmpty())
+        if (maxTime <= 0.0)
         {
             return;
         }
+
+        /* Bake onto a regular integer frame grid (FRAMES_PER_SECOND) instead of
+         * one keyframe per raw track time. Whole frame numbers keep BBS's
+         * integer loop length from truncating the clip tail, and the spacing
+         * matches what BOBJ clips use while cutting the keyframe count way down. */
+        int lastFrame = (int) Math.ceil(maxTime / ticksPerSecond * FRAMES_PER_SECOND);
 
         BOBJGroup group = new BOBJGroup(nodeName);
 
@@ -226,8 +231,12 @@ public final class FBXAnimationBaker
 
         boolean scaleVaries = false;
 
-        for (double time : timeSet)
+        Vector3f prevEuler = null;
+
+        for (int f = 0; f <= lastFrame; f++)
         {
+            double time = (double) f / FRAMES_PER_SECOND * ticksPerSecond;
+
             Vector3f t = (numPos > 0) ? interpolateVector(posTimes, posVals, time) : new Vector3f(restT);
             Quaternionf r = (numRot > 0) ? interpolateQuat(rotTimes, rotVals, time) : new Quaternionf(restR);
             Vector3f s = (numScale > 0) ? interpolateVector(scaleTimes, scaleVals, time) : new Vector3f(restS);
@@ -241,7 +250,20 @@ public final class FBXAnimationBaker
             dq.normalize();
             quatToEulerZYX(dq, euler);
 
-            float frame = (float) (time / ticksPerSecond * FRAMES_PER_SECOND);
+            /* Unwrap the euler angles so each keyframe stays on the branch
+             * nearest the previous one. Without this the ZYX decomposition flips
+             * by +/-PI when a bone passes near gimbal lock, and BBS's linear
+             * euler interpolation sweeps the bone through a full rotation -
+             * the visible stutter. */
+            if (prevEuler != null)
+            {
+                euler.x = unwrapAngle(euler.x, prevEuler.x);
+                euler.y = unwrapAngle(euler.y, prevEuler.y);
+                euler.z = unwrapAngle(euler.z, prevEuler.z);
+            }
+            prevEuler = new Vector3f(euler);
+
+            float frame = (float) f;
 
             tx.keyframes.add(new BOBJKeyframe(frame, dt.x * globalScale));
             ty.keyframes.add(new BOBJKeyframe(frame, dt.y * globalScale));
@@ -364,5 +386,17 @@ public final class FBXAnimationBaker
         double yaw = Math.atan2(sinyCosp, cosyCosp);
 
         dest.set((float) roll, (float) pitch, (float) yaw);
+    }
+
+    /**
+     * Returns the angle equivalent to {@code current} that lies closest to
+     * {@code previous} (i.e. adds the nearest multiple of 2*PI). Used while
+     * baking to keep a sequence of euler angles continuous across the
+     * +/-PI wraparound that the ZYX decomposition introduces near gimbal lock.
+     */
+    private static float unwrapAngle(float current, float previous)
+    {
+        double k = Math.round((previous - current) / (2.0 * Math.PI));
+        return (float) (current + 2.0 * Math.PI * k);
     }
 }
