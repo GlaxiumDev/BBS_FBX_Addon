@@ -1,6 +1,7 @@
 package elgatopro300.bbsfbx.model.fbx.loaders;
 
 import elgatopro300.bbsfbx.model.fbx.FBXShapeKeyModel;
+import elgatopro300.bbsfbx.model.fbx.FBXShapeKeyNames;
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJLoader.BOBJData;
 import mchorse.bbs_mod.bobj.BOBJLoader.BOBJMesh;
@@ -162,7 +163,7 @@ public class FBXModelLoader implements IModelLoader
                 continue;
             }
 
-            String meshName = safeName(mesh.mName().dataString());
+            String meshName = FBXShapeKeyNames.safeName(mesh.mName().dataString());
             PointerBuffer animMeshes = mesh.mAnimMeshes();
 
             for (int animIndex = 0; animIndex < mesh.mNumAnimMeshes(); animIndex++)
@@ -174,7 +175,7 @@ public class FBXModelLoader implements IModelLoader
                     continue;
                 }
 
-                String shapeKeyName = buildShapeKeyName(animMesh, meshName, animIndex);
+                String shapeKeyName = FBXShapeKeyNames.buildShapeKeyName(animMesh, meshName, animIndex);
 
                 if (!shapeKeyName.isBlank())
                 {
@@ -184,71 +185,5 @@ public class FBXModelLoader implements IModelLoader
         }
 
         return names;
-    }
-
-    private static String buildShapeKeyName(AIAnimMesh animMesh, String meshName, int animIndex)
-    {
-        String name = safeName(animMesh.mName().dataString());
-
-        if (!name.isBlank())
-        {
-            return normalizeShapeKeyName(name);
-        }
-
-        if (!meshName.isBlank())
-        {
-            return meshName + "_shape_" + (animIndex + 1);
-        }
-
-        return "shape_" + (animIndex + 1);
-    }
-
-    private static String normalizeShapeKeyName(String name)
-    {
-        if (name == null)
-        {
-            return "";
-        }
-
-        String normalized = name.trim();
-
-        if (normalized.isBlank())
-        {
-            return "";
-        }
-
-        String deduplicated = stripRepeatedName(normalized, '.');
-
-        if (!deduplicated.equals(normalized))
-        {
-            return deduplicated;
-        }
-
-        return normalized;
-    }
-
-    private static String stripRepeatedName(String value, char separator)
-    {
-        int separatorIndex = value.indexOf(separator);
-
-        if (separatorIndex <= 0 || separatorIndex >= value.length() - 1)
-        {
-            return value;
-        }
-
-        String left = value.substring(0, separatorIndex).trim();
-        String right = value.substring(separatorIndex + 1).trim();
-
-        if (!left.isBlank() && left.equals(right))
-        {
-            return left;
-        }
-
-        return value;
-    }
-
-    private static String safeName(String value)
-    {
-        return value == null ? "" : value.trim();
     }
 }
