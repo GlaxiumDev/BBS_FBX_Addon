@@ -3,7 +3,8 @@
   "package": "elgatopro300.bbsfbx.mixin",
   "compatibilityLevel": "JAVA_17",
   "client": [
-    "ModelManagerMixin"
+    "ModelManagerMixin",
+    "ImportersMixin"
   ],
   "injectors": {
     "defaultRequire": 1
