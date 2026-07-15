@@ -27,21 +27,29 @@ public final class FBXSceneWalker
      *                   animated-but-unskinned nodes; harmlessly unused when
      *                   the scene has no animations. This used to be a
      *                   second, separate full tree walk.
+     * @param nodeWorldTransforms populated with every node's accumulated
+     *                            world transform (relative to the scene
+     *                            root), keyed by node name — not just the
+     *                            mesh-owning ones. Lets {@link FBXArmatureBuilder}
+     *                            turn mesh-less "Empty" nodes into bones too,
+     *                            the same way {@code meshTransforms} lets it
+     *                            turn mesh-owning nodes into bones.
      */
-    public static Map<Integer, Matrix4f> collectMeshTransforms(AINode rootNode, Map<Integer, String> meshNodeNames, Map<String, String> nodeParents, Map<String, Matrix4f> nodeLocals)
+    public static Map<Integer, Matrix4f> collectMeshTransforms(AINode rootNode, Map<Integer, String> meshNodeNames, Map<String, String> nodeParents, Map<String, Matrix4f> nodeLocals, Map<String, Matrix4f> nodeWorldTransforms)
     {
         Map<Integer, Matrix4f> meshTransforms = new HashMap<>();
-        collectMeshTransforms(rootNode, new Matrix4f(), meshTransforms, meshNodeNames, nodeParents, nodeLocals);
+        collectMeshTransforms(rootNode, new Matrix4f(), meshTransforms, meshNodeNames, nodeParents, nodeLocals, nodeWorldTransforms);
         return meshTransforms;
     }
 
-    private static void collectMeshTransforms(AINode node, Matrix4f parentGlobal, Map<Integer, Matrix4f> meshTransforms, Map<Integer, String> meshNodeNames, Map<String, String> nodeParents, Map<String, Matrix4f> nodeLocals)
+    private static void collectMeshTransforms(AINode node, Matrix4f parentGlobal, Map<Integer, Matrix4f> meshTransforms, Map<Integer, String> meshNodeNames, Map<String, String> nodeParents, Map<String, Matrix4f> nodeLocals, Map<String, Matrix4f> nodeWorldTransforms)
     {
         Matrix4f local = FBXMath.toMatrix4f(node.mTransformation());
         Matrix4f global = new Matrix4f(parentGlobal).mul(local);
 
         String nodeName = node.mName().dataString();
         nodeLocals.put(nodeName, local);
+        nodeWorldTransforms.put(nodeName, new Matrix4f(global));
 
         IntBuffer meshIndices = node.mMeshes();
         int numMeshes = node.mNumMeshes();
@@ -64,7 +72,7 @@ public final class FBXSceneWalker
             // Skip synthetic roots so top-level objects stay parentless.
             String parentForChild = (nodeName.equals("RootNode") || nodeName.equals("Armature")) ? "" : nodeName;
             nodeParents.putIfAbsent(childName, parentForChild);
-            collectMeshTransforms(child, global, meshTransforms, meshNodeNames, nodeParents, nodeLocals);
+            collectMeshTransforms(child, global, meshTransforms, meshNodeNames, nodeParents, nodeLocals, nodeWorldTransforms);
         }
     }
 }

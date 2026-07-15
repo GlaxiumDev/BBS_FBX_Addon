@@ -106,7 +106,20 @@ public final class FBXAnimationBaker
                 ticksPerSecond = 24.0;
             }
 
-            BOBJAction action = new BOBJAction(name);
+            /* Blockbench -> Blender FBX exports emit one AIAnimation PER
+             * ANIMATED NODE per clip (e.g. 40 fragments all named "idle" for
+             * a 40-bone/Empty rig), not one AIAnimation with many channels.
+             * Reuse the action already in the map for this clip name (if
+             * any) and merge this fragment's groups into it — otherwise each
+             * new fragment's freshly-`new`'d BOBJAction overwrites the
+             * previous fragment in `actions`, so only the LAST node
+             * processed per clip keeps its animation and every other
+             * node/bone/Empty silently falls back to its static rest pose. */
+            BOBJAction action = actions.get(name);
+            if (action == null)
+            {
+                action = new BOBJAction(name);
+            }
 
             int numChannels = aiAnimation.mNumChannels();
             for (int c = 0; c < numChannels; c++)
