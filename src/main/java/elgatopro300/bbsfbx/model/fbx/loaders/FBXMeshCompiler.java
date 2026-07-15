@@ -1,5 +1,6 @@
 package elgatopro300.bbsfbx.model.fbx.loaders;
 
+import elgatopro300.bbsfbx.model.fbx.FBXMesh;
 import mchorse.bbs_mod.bobj.BOBJBone;
 import mchorse.bbs_mod.bobj.BOBJLoader;
 import mchorse.bbs_mod.bobj.BOBJLoader.BOBJData;
@@ -8,6 +9,9 @@ import mchorse.bbs_mod.bobj.BOBJLoader.CompiledData;
 
 import org.joml.Vector2d;
 import org.joml.Vector3f;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.List;
 
 /**
  * Flattens a single BOBJMesh (plus the shared vertex/texture/normal pools in
@@ -82,9 +86,69 @@ public final class FBXMeshCompiler
             }
         }
 
-        return new CompiledData(
-                pos, tex, norm, weights, bones, indices,
-                mesh
-        );
+        Map<String, float[]> shapeKeyVerticesCompiled = new HashMap<>();
+        Map<String, float[]> shapeKeyNormalsCompiled = new HashMap<>();
+
+        if (mesh instanceof FBXMesh fbxMesh && fbxMesh.shapeKeyVertices != null)
+        {
+            int vertexBaseIndex = fbxMesh.vertexBaseIndex;
+            int normalBaseIndex = fbxMesh.normalBaseIndex;
+
+            for (String key : fbxMesh.shapeKeyVertices.keySet())
+            {
+                shapeKeyVerticesCompiled.put(key, new float[totalVertices * 3]);
+                shapeKeyNormalsCompiled.put(key, new float[totalVertices * 3]);
+            }
+
+            int pIdx = 0;
+            for (BOBJLoader.Face face : mesh.faces)
+            {
+                for (BOBJLoader.IndexGroup group : face.idxGroups)
+                {
+                    int localVertIndex = group.idxPos - vertexBaseIndex;
+                    int localNormalIndex = group.idxVecNormal - normalBaseIndex;
+
+                    for (String key : fbxMesh.shapeKeyVertices.keySet())
+                    {
+                        List<Vector3f> shapeVerts = fbxMesh.shapeKeyVertices.get(key);
+                        List<Vector3f> shapeNorms = fbxMesh.shapeKeyNormals.get(key);
+
+                        float[] sPos = shapeKeyVerticesCompiled.get(key);
+                        float[] sNorm = shapeKeyNormalsCompiled.get(key);
+
+                        if (localVertIndex >= 0 && localVertIndex < shapeVerts.size())
+                        {
+                            Vector3f sv = shapeVerts.get(localVertIndex);
+                            sPos[pIdx] = sv.x;
+                            sPos[pIdx + 1] = sv.y;
+                            sPos[pIdx + 2] = sv.z;
+                        }
+                        else
+                        {
+                            sPos[pIdx] = pos[pIdx];
+                            sPos[pIdx + 1] = pos[pIdx + 1];
+                            sPos[pIdx + 2] = pos[pIdx + 2];
+                        }
+
+                        if (localNormalIndex >= 0 && localNormalIndex < shapeNorms.size())
+                        {
+                            Vector3f sn = shapeNorms.get(localNormalIndex);
+                            sNorm[pIdx] = sn.x;
+                            sNorm[pIdx + 1] = sn.y;
+                            sNorm[pIdx + 2] = sn.z;
+                        }
+                        else
+                        {
+                            sNorm[pIdx] = norm[pIdx];
+                            sNorm[pIdx + 1] = norm[pIdx + 1];
+                            sNorm[pIdx + 2] = norm[pIdx + 2];
+                        }
+                    }
+                    pIdx += 3;
+                }
+            }
+        }
+
+        return new FBXCompiledData(pos, tex, norm, weights, bones, indices, mesh, shapeKeyVerticesCompiled, shapeKeyNormalsCompiled);
     }
 }

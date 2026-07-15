@@ -139,6 +139,101 @@ public final class FBXMeshBuilder
             }
         }
 
+        int numAnimMeshes = aiMesh.mNumAnimMeshes();
+        if (numAnimMeshes > 0 && aiMesh.mAnimMeshes() != null)
+        {
+            mesh.shapeKeyVertices = new java.util.HashMap<>();
+            mesh.shapeKeyNormals = new java.util.HashMap<>();
+            mesh.vertexBaseIndex = vertexBaseIndex;
+            mesh.normalBaseIndex = normalBaseIndex;
+
+            String meshName = elgatopro300.bbsfbx.model.fbx.FBXShapeKeyNames.safeName(aiMesh.mName().dataString());
+            org.lwjgl.PointerBuffer animMeshes = aiMesh.mAnimMeshes();
+
+            for (int animIndex = 0; animIndex < numAnimMeshes; animIndex++)
+            {
+                org.lwjgl.assimp.AIAnimMesh animMesh = org.lwjgl.assimp.AIAnimMesh.createSafe(animMeshes.get(animIndex));
+
+                if (animMesh == null)
+                {
+                    continue;
+                }
+
+                String shapeKeyName = elgatopro300.bbsfbx.model.fbx.FBXShapeKeyNames.buildShapeKeyName(animMesh, meshName, animIndex);
+
+                if (shapeKeyName.isBlank())
+                {
+                    continue;
+                }
+
+                java.util.List<Vector3f> shapeVertices = new java.util.ArrayList<>();
+                org.lwjgl.assimp.AIVector3D.Buffer aiAnimVertices = animMesh.mVertices();
+                if (aiAnimVertices != null)
+                {
+                    Vector3f animPos = new Vector3f();
+                    while (aiAnimVertices.remaining() > 0)
+                    {
+                        org.lwjgl.assimp.AIVector3D aiAnimVertex = aiAnimVertices.get();
+                        animPos.set(aiAnimVertex.x(), aiAnimVertex.y(), aiAnimVertex.z());
+
+                        if (applyNodeTransform)
+                        {
+                            meshTransform.transformPosition(animPos);
+                        }
+                        else if (meshRotationOnly != null)
+                        {
+                            meshRotationOnly.transformPosition(animPos);
+                        }
+
+                        animPos.mul(scaleFactor);
+                        rootCorrection.transformPosition(animPos);
+
+                        animPos.x += offsetX;
+                        animPos.y += offsetY;
+                        animPos.z += offsetZ;
+
+                        shapeVertices.add(new Vector3f(animPos.x, animPos.y, animPos.z));
+                    }
+                }
+                mesh.shapeKeyVertices.put(shapeKeyName, shapeVertices);
+
+                java.util.List<Vector3f> shapeNormals = new java.util.ArrayList<>();
+                org.lwjgl.assimp.AIVector3D.Buffer aiAnimNormals = animMesh.mNormals();
+                if (aiAnimNormals != null)
+                {
+                    while (aiAnimNormals.remaining() > 0)
+                    {
+                        org.lwjgl.assimp.AIVector3D aiAnimNormal = aiAnimNormals.get();
+                        Vector3f animNorm = new Vector3f(aiAnimNormal.x(), aiAnimNormal.y(), aiAnimNormal.z());
+
+                        if (applyNodeTransform)
+                        {
+                            meshTransform.transformDirection(animNorm);
+                        }
+                        else if (meshRotationOnly != null)
+                        {
+                            meshRotationOnly.transformDirection(animNorm);
+                        }
+
+                        rootCorrection.transformDirection(animNorm);
+                        animNorm.normalize();
+
+                        shapeNormals.add(animNorm);
+                    }
+                }
+                else
+                {
+                    int count = aiMesh.mNumVertices();
+                    for (int i = 0; i < count; i++)
+                    {
+                        shapeNormals.add(new Vector3f(0, 1, 0));
+                    }
+                }
+                mesh.shapeKeyNormals.put(shapeKeyName, shapeNormals);
+            }
+        }
+
+
         int numFaces = aiMesh.mNumFaces();
         for (int i = 0; i < numFaces; i++)
         {
