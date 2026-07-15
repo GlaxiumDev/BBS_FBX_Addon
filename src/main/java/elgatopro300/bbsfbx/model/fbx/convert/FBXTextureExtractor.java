@@ -17,6 +17,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
  * Extracts embedded FBX textures (Blender's "Embed Textures" export option)
@@ -30,8 +32,9 @@ public final class FBXTextureExtractor
 {
     private FBXTextureExtractor() {}
 
-    public static void extract(AIScene scene, AssetProvider provider, Link model)
+    public static Set<String> extract(AIScene scene, AssetProvider provider, Link model)
     {
+        Set<String> texturedMaterials = new LinkedHashSet<>();
         int numMaterials = scene.mNumMaterials();
 
         for (int i = 0; i < numMaterials; i++)
@@ -56,6 +59,21 @@ public final class FBXTextureExtractor
             String texturePath = result == Assimp.aiReturn_SUCCESS ? path.dataString() : null;
             path.free();
 
+            if (texturePath == null || texturePath.isEmpty())
+            {
+                /* Flat-color material: handled at load time via a synthetic
+                 * color Link in FBXTextureResolver, nothing to write here -
+                 * and nothing for FBXModelLoader to track either, since
+                 * there's no PNG that could ever go missing for it. */
+                continue;
+            }
+
+            /* This material is supposed to have a PNG on disk, regardless of whether we're about
+             * to write one this call or it's already there - FBXModelLoader caches this set so it
+             * can tell, on a load-cache hit (no fresh AIScene at all), whether a previously
+             * extracted texture has since been deleted and needs re-extracting. */
+            texturedMaterials.add(materialName);
+
             File folder = provider.getFile(model.combine("textures/" + materialName));
             if (folder == null)
             {
@@ -65,13 +83,6 @@ public final class FBXTextureExtractor
             File targetFile = new File(folder, "default.png");
             if (targetFile.exists())
             {
-                continue;
-            }
-
-            if (texturePath == null || texturePath.isEmpty())
-            {
-                /* Flat-color material: handled at load time via a synthetic
-                 * color Link in FBXTextureResolver, nothing to write here. */
                 continue;
             }
 
@@ -97,6 +108,8 @@ public final class FBXTextureExtractor
                 e.printStackTrace();
             }
         }
+
+        return texturedMaterials;
     }
 
     private static AITexture resolveEmbeddedTexture(AIScene scene, String texturePath)

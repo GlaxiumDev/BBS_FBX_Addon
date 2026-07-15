@@ -35,25 +35,35 @@ public final class FBXModelLoadCache
         final long hash;
         final BOBJData data;
         final Set<String> shapeKeyNames;
+        final Set<String> texturedMaterials;
 
-        Entry(long hash, BOBJData data, Set<String> shapeKeyNames)
+        Entry(long hash, BOBJData data, Set<String> shapeKeyNames, Set<String> texturedMaterials)
         {
             this.hash = hash;
             this.data = data;
             this.shapeKeyNames = shapeKeyNames;
+            this.texturedMaterials = texturedMaterials;
         }
     }
 
-    /** Small holder so callers get both cached pieces from one lookup. */
+    /** Small holder so callers get all cached pieces from one lookup. */
     public static final class Cached
     {
         public final BOBJData data;
         public final Set<String> shapeKeyNames;
 
-        private Cached(BOBJData data, Set<String> shapeKeyNames)
+        /** Materials that have an embedded FBX texture and so should have a
+         *  {@code textures/<material>/default.png} on disk. Since a cache hit means no fresh
+         *  AIScene gets imported, this is what lets {@link elgatopro300.bbsfbx.model.fbx.loaders.FBXModelLoader}
+         *  notice a previously-extracted PNG that's since been deleted, without having to reimport
+         *  just to find out. */
+        public final Set<String> texturedMaterials;
+
+        private Cached(BOBJData data, Set<String> shapeKeyNames, Set<String> texturedMaterials)
         {
             this.data = data;
             this.shapeKeyNames = shapeKeyNames;
+            this.texturedMaterials = texturedMaterials;
         }
     }
 
@@ -84,12 +94,12 @@ public final class FBXModelLoadCache
             return null;
         }
 
-        return new Cached(entry.data, entry.shapeKeyNames);
+        return new Cached(entry.data, entry.shapeKeyNames, entry.texturedMaterials);
     }
 
-    public static void put(String key, long hash, BOBJData data, Set<String> shapeKeyNames)
+    public static void put(String key, long hash, BOBJData data, Set<String> shapeKeyNames, Set<String> texturedMaterials)
     {
-        CACHE.put(key, new Entry(hash, data, shapeKeyNames));
+        CACHE.put(key, new Entry(hash, data, shapeKeyNames, texturedMaterials));
     }
 
     /** Drops a single cached entry - not currently called, but here if you want a manual "force full reimport" hook. */
