@@ -74,29 +74,47 @@ public class FBXModelLoader implements IModelLoader
                 bytes = stream.readAllBytes();
             }
 
-            AIScene scene = null;
+            long contentHash = FBXModelLoadCache.hash(bytes);
+            FBXModelLoadCache.Cached cached = FBXModelLoadCache.get(fbxLink.path, contentHash);
+
             BOBJData data;
-            Set<String> shapeKeyNames = Set.of();
+            Set<String> shapeKeyNames;
 
-            try
+            if (cached != null)
             {
-                scene = FBXAssimpImporter.importScene(bytes);
-
-                if (scene == null)
-                {
-                    return null;
-                }
-
-                shapeKeyNames = collectShapeKeyNames(scene);
-                data = FBXConverter.convert(scene);
-                FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
+                /* Same file content as last time this path was loaded - e.g.
+                 * "reload models" triggered by an unrelated asset change, not
+                 * an edit to this FBX. Skip the native Assimp import and the
+                 * scene -> BOBJData conversion entirely. */
+                data = cached.data;
+                shapeKeyNames = cached.shapeKeyNames;
             }
-            finally
+            else
             {
-                if (scene != null)
+                AIScene scene = null;
+
+                try
                 {
-                    Assimp.aiReleaseImport(scene);
+                    scene = FBXAssimpImporter.importScene(bytes);
+
+                    if (scene == null)
+                    {
+                        return null;
+                    }
+
+                    shapeKeyNames = collectShapeKeyNames(scene);
+                    data = FBXConverter.convert(scene);
+                    FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
                 }
+                finally
+                {
+                    if (scene != null)
+                    {
+                        Assimp.aiReleaseImport(scene);
+                    }
+                }
+
+                FBXModelLoadCache.put(fbxLink.path, contentHash, data, shapeKeyNames);
             }
 
             data.initiateArmatures();
@@ -104,13 +122,9 @@ public class FBXModelLoader implements IModelLoader
             /* BBS FS's BOBJModel takes one CompiledData per mesh (instead of
              * CML's single merged CompiledData), and FS's renderer reads the
              * material name from CompiledData.mesh, so each mesh is compiled
-             * separately with its mesh reference attached. */
-            List<CompiledData> compiledMeshes = new ArrayList<>();
-
-            for (BOBJMesh mesh : data.meshes)
-            {
-                compiledMeshes.add(FBXMeshCompiler.compile(data, mesh));
-            }
+             * separately with its mesh reference attached. Independent meshes
+             * are compiled in parallel - see FBXLoaderExecutor. */
+            List<CompiledData> compiledMeshes = compileMeshes(data);
 
             BOBJArmature armature = null;
             if (!data.armatures.isEmpty())
@@ -143,6 +157,48 @@ public class FBXModelLoader implements IModelLoader
         }
         return null;
     }
+    /**
+     * Compiles every mesh into its packed renderer arrays. A model with
+     * only one mesh (the common case) just compiles it directly - no point
+     * paying thread hand-off cost for a single unit of work. A model with
+     * several meshes (multi-material characters, props with separate
+     * parts, etc.) spreads them across {@link FBXLoaderExecutor}'s pool,
+     * since each mesh's compile is independent and only reads from the
+     * already-built, unchanging vertex/texture/normal pools in {@code data}.
+     */
+    private static List<CompiledData> compileMeshes(BOBJData data) throws Exception
+    {
+        int count = data.meshes.size();
+
+        if (count <= 1)
+        {
+            List<CompiledData> result = new ArrayList<>(count);
+
+            for (BOBJMesh mesh : data.meshes)
+            {
+                result.add(FBXMeshCompiler.compile(data, mesh));
+            }
+
+            return result;
+        }
+
+        List<java.util.concurrent.Future<CompiledData>> futures = new ArrayList<>(count);
+
+        for (BOBJMesh mesh : data.meshes)
+        {
+            futures.add(FBXLoaderExecutor.POOL.submit(() -> FBXMeshCompiler.compile(data, mesh)));
+        }
+
+        List<CompiledData> result = new ArrayList<>(count);
+
+        for (java.util.concurrent.Future<CompiledData> future : futures)
+        {
+            result.add(future.get());
+        }
+
+        return result;
+    }
+
     private static Set<String> collectShapeKeyNames(AIScene scene)
     {
         LinkedHashSet<String> names = new LinkedHashSet<>();
