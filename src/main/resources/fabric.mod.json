@@ -26,9 +26,9 @@
     "bbs_fbx.mixins.json"
   ],
   "depends": {
-    "fabricloader": ">=0.15.0",
-    "minecraft": "~1.20.4",
-    "java": ">=17",
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
     "bbs": ">=2.0.0"
   }
 }

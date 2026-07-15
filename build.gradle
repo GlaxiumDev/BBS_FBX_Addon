@@ -3,7 +3,7 @@ plugins {
 	id 'maven-publish'
 }
 
-version = project.mod_version + "-" + minecraft_version
+version = project.mod_version + "-" + project.minecraft_version
 group = project.maven_group
 
 base {
@@ -11,14 +11,6 @@ base {
 }
 
 repositories {
-	// Add repositories to retrieve artifacts from in here.
-	// You should only use this when depending on other mods because
-	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
-	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
-	// for more information about repositories.
-
-	// BBS FS is not published to a maven repository: drop the BBS FS mod jar
-	// (e.g. bbs-2.3.1-1.20.4.jar) into the "libs" folder next to this file.
 	flatDir {
 		dirs 'libs'
 	}
@@ -27,36 +19,28 @@ repositories {
 configurations.all {
 	resolutionStrategy {
 		eachDependency { DependencyResolveDetails details ->
-			if (details.requested.group == 'org.lwjgl' && details.requested.name.startsWith('lwjgl-assimp')) {
-				// Pin only the Assimp module; let Loom resolve every other
-				// LWJGL module to whatever the target Minecraft version ships
-				// (1.20.x = 3.3.2, 1.21.x = 3.3.3) - forcing the whole
-				// org.lwjgl group breaks whichever MC version doesn't match.
-				details.useVersion '3.3.2'
+			if (details.requested.group == 'org.lwjgl') {
+				details.useVersion '3.3.3'
 			}
 		}
 	}
 }
 
 dependencies {
-	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
-	// Fabric API (BBS FS depends on it).
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-	// BBS FS: place the released BBS FS jar into the "libs" folder.
 	modImplementation fileTree(dir: "libs", include: "*.jar")
 
-	// FBX Implementation: bundle only the Assimp module (matching Minecraft 1.20.4's LWJGL version).
-	implementation(include("org.lwjgl:lwjgl-assimp:3.3.2"))
-	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-windows"))
-	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-windows-arm64"))
-	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-linux"))
-	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-macos"))
-	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-macos-arm64"))
+	implementation(include("org.lwjgl:lwjgl-assimp:3.3.3"))
+	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.3:natives-windows"))
+	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.3:natives-windows-arm64"))
+	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.3:natives-linux"))
+	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.3:natives-macos"))
+	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.3:natives-macos-arm64"))
 }
 
 processResources {
@@ -68,26 +52,22 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = 17
+	it.options.release = 21
 }
 
 java {
-	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
-	// if it is present.
-	// If you remove this line, sources will not be generated.
 	withSourcesJar()
 
-	sourceCompatibility = JavaVersion.VERSION_17
-	targetCompatibility = JavaVersion.VERSION_17
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
 }
 
 jar {
 	from("LICENSE") {
-		rename { "${it}_${project.base.archivesName.get()}"}
+		rename { "${it}_${project.base.archivesName.get()}" }
 	}
 }
 
-// configure the maven publication
 publishing {
 	publications {
 		mavenJava(MavenPublication) {
@@ -95,11 +75,6 @@ publishing {
 		}
 	}
 
-	// See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
 	repositories {
-		// Add repositories to publish to here.
-		// Notice: This block does NOT have the same function as the block in the top level.
-		// The repositories here will be used for publishing your artifact, not for
-		// retrieving dependencies.
 	}
 }
