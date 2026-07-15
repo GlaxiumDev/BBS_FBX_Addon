@@ -12,7 +12,6 @@ import org.lwjgl.assimp.AINode;
 import org.lwjgl.assimp.AIScene;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -75,31 +74,50 @@ public final class FBXArmatureBuilder
         return boneMeshRotations;
     }
 
-    /**
-     * Non-skinned path: gives every mesh its own bone, named after its
-     * source object, anchored at that object's Blender origin (requires
-     * OptimizeGraph OFF in the loader so each object keeps its own node).
-     */
-    public static void buildObjectBones(BOBJArmature armature, int numMeshes, Map<Integer, String> meshNodeNames, Map<String, String> nodeParents, Map<Integer, Matrix4f> meshTransforms, Matrix4f rootCorrection, float globalScale)
+    /** Synthetic wrapper nodes Assimp/FBX always emits; never turned into bones. */
+    private static boolean isSyntheticRoot(String nodeName)
     {
-        /* Precomputed once (O(n)) instead of scanning meshNodeNames.values()
-         * per mesh via containsValue, which was O(n) per lookup and O(n^2)
-         * overall across all n objects. */
-        Set<String> meshOwningNodes = new HashSet<>(meshNodeNames.values());
+        return nodeName.equals("RootNode") || nodeName.equals("Armature");
+    }
 
-        for (int i = 0; i < numMeshes; i++)
+    /**
+     * Non-skinned path: gives every scene node its own bone — both
+     * mesh-owning objects AND mesh-less "Empty" objects (Blockbench/Blender
+     * locators, held-item points, camera targets, group pivots, etc.) —
+     * anchored at that node's Blender origin (requires OptimizeGraph OFF in
+     * the loader so each object keeps its own node). An Empty shows up in
+     * BBS exactly like any other limb/group ({@link mchorse.bbs_mod.cubic.model.bobj.BOBJModel}
+     * derives its group list straight from {@code BOBJArmature.bones}), and
+     * parent/child Empty chains are preserved via {@code nodeParents} so
+     * nesting (Empty -> Empty -> mesh, etc.) round-trips correctly.
+     *
+     * @param nodeWorldTransforms every node's world transform, keyed by node
+     *                            name (from {@link FBXSceneWalker}) — this is
+     *                            what makes Empty (mesh-less) nodes buildable,
+     *                            since they have no entry in {@code meshTransforms}.
+     */
+    public static void buildObjectBones(BOBJArmature armature, Map<String, Matrix4f> nodeWorldTransforms, Map<String, String> nodeParents, Matrix4f rootCorrection, float globalScale)
+    {
+        for (Map.Entry<String, Matrix4f> entry : nodeWorldTransforms.entrySet())
         {
-            String objectName = meshNodeNames.getOrDefault(i, "object_" + i);
-            if (armature.bones.containsKey(objectName)) continue;
+            String objectName = entry.getKey();
+
+            if (isSyntheticRoot(objectName) || armature.bones.containsKey(objectName))
+            {
+                continue;
+            }
 
             String parentName = nodeParents.getOrDefault(objectName, "");
-            // Only keep the parent link if that parent is itself a bone.
-            if (!parentName.isEmpty() && !meshOwningNodes.contains(parentName))
+            // Only keep the parent link if that parent is itself becoming a
+            // bone (i.e. it isn't a synthetic root); every real Empty/mesh
+            // node in the chain becomes a bone now, so no other node is ever
+            // filtered out from underneath it.
+            if (!parentName.isEmpty() && isSyntheticRoot(parentName))
             {
                 parentName = "";
             }
 
-            Matrix4f nodeWorld = meshTransforms.get(i);
+            Matrix4f nodeWorld = entry.getValue();
             Matrix4f boneRest = nodeWorld == null
                     ? new Matrix4f(rootCorrection)
                     : new Matrix4f(rootCorrection).mul(nodeWorld);

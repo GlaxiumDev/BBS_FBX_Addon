@@ -82,7 +82,8 @@ public class FBXConverter
         Map<Integer, String> meshNodeNames = new HashMap<>();
         Map<String, String> nodeParents = new HashMap<>();
         Map<String, Matrix4f> nodeLocals = new HashMap<>();
-        Map<Integer, Matrix4f> meshTransforms = FBXSceneWalker.collectMeshTransforms(rootNode, meshNodeNames, nodeParents, nodeLocals);
+        Map<String, Matrix4f> nodeWorldTransforms = new HashMap<>();
+        Map<Integer, Matrix4f> meshTransforms = FBXSceneWalker.collectMeshTransforms(rootNode, meshNodeNames, nodeParents, nodeLocals, nodeWorldTransforms);
 
         Map<String, Integer> skinnedBoneMeshIndex = new HashMap<>();
         Map<String, AIBone> skinnedBones = FBXArmatureBuilder.collectSkinnedBones(scene, skinnedBoneMeshIndex);
@@ -106,9 +107,11 @@ public class FBXConverter
         }
         else
         {
-            // One bone per object, named after the object, anchored at its
-            // Blender origin so each mesh pivots around its own point.
-            FBXArmatureBuilder.buildObjectBones(globalArmature, numMeshes, meshNodeNames, nodeParents, meshTransforms, rootCorrection, globalScale[0]);
+            // One bone per scene node — every mesh object AND every mesh-less
+            // Empty (locator/group) — anchored at its own Blender origin, so
+            // meshes pivot around their own point and Empties show up in BBS
+            // as animatable, nestable limbs/groups just like mesh objects.
+            FBXArmatureBuilder.buildObjectBones(globalArmature, nodeWorldTransforms, nodeParents, rootCorrection, globalScale[0]);
         }
 
         // Respect Blender's coordinates exactly: no centering/grounding/normalization.
@@ -131,11 +134,17 @@ public class FBXConverter
 
         FBXMeshBuilder.finalizeWeights(vertices, globalArmature);
 
-        /* Extract skeletal animations for armature (FBX with armature) models,
-         * mirroring how BOBJ models carry actions. Only meaningful when the
-         * model is actually skinned, since animation groups are keyed by the
-         * armature's bone names. */
-        if (scene.mNumAnimations() > 0 && !skinnedBones.isEmpty())
+        /* Extract animation clips into BOBJActions, mirroring how BOBJ models
+         * carry actions. This now runs for BOTH paths:
+         *  - skinned scenes: channels targeting skinned bones are diffed
+         *    against their bind-pose local transform (bindLocals);
+         *  - non-skinned scenes: channels targeting an object/Empty bone fall
+         *    back to that node's raw local transform (nodeLocals) as its
+         *    rest pose, giving per-object (including per-Empty) animation.
+         * FBXAnimationBaker.processAnimations() already skips any channel
+         * whose node isn't a bone in the armature, so this is safe to run
+         * unconditionally whenever the scene has animation data. */
+        if (scene.mNumAnimations() > 0)
         {
             Map<String, Matrix4f> bindLocals = FBXAnimationBaker.computeBindLocals(skinnedBones, globalArmature);
 
