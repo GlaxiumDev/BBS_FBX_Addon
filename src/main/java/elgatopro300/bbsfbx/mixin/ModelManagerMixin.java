@@ -1,6 +1,7 @@
 package elgatopro300.bbsfbx.mixin;
 
 import elgatopro300.bbsfbx.BBSFbxAddon;
+import elgatopro300.bbsfbx.model.fbx.loaders.FBXModelLoadCache;
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXModelLoader;
 
 import mchorse.bbs_mod.cubic.model.ModelManager;
@@ -12,15 +13,6 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-/**
- * BBS FS has no {@code RegisterModelLoadersEvent} (unlike CML), so this mixin
- * hooks into {@link ModelManager} to register the FBX loader and to make
- * {@code .fbx} files count as reloadable model assets.
- *
- * <p>Injecting into {@code setupLoaders} (instead of only the constructor)
- * keeps the FBX loader registered after {@code ModelManager.reload()},
- * which clears and rebuilds the loader list.</p>
- */
 @Mixin(value = ModelManager.class, remap = false)
 public class ModelManagerMixin
 {
@@ -28,9 +20,7 @@ public class ModelManagerMixin
     private void bbsFbx$registerFbxLoader(CallbackInfo info)
     {
         ModelManager manager = (ModelManager) (Object) this;
-
         manager.loaders.add(new FBXModelLoader());
-
         BBSFbxAddon.LOGGER.info("FBX model loader registered");
     }
 
@@ -45,6 +35,26 @@ public class ModelManagerMixin
                 && path.toLowerCase().endsWith(".fbx"))
         {
             info.setReturnValue(true);
+        }
+    }
+
+    /**
+     * CRITICAL FIX: Clear the FBX geometry cache on every reload.
+     *
+     * BBS FS calls reload() when F6 is pressed. Without this, deleting a
+     * model folder and re-adding it returns stale BOBJData from the previous
+     * load. That stale data has mutated mesh names (from compilation) and
+     * causes BBS FS to register only 1 material, which gets saved to disk.
+     * Reloading the world then loads that broken saved config.
+     */
+    @Inject(method = "reload", at = @At("HEAD"), remap = false)
+    private void bbsFbx$clearCacheOnReload(CallbackInfo info)
+    {
+        int size = FBXModelLoadCache.size();
+        if (size > 0)
+        {
+            FBXModelLoadCache.clear();
+            BBSFbxAddon.LOGGER.info("Cleared FBX model load cache ({} entries) for reload", size);
         }
     }
 }
