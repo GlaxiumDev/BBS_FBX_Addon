@@ -84,19 +84,19 @@ public class FBXModelLoader implements IModelLoader
 
             if (cached != null)
             {
-                /* Same file content as last time this path was loaded - e.g.
-                 * "reload models" triggered by an unrelated asset change, not
-                 * an edit to this FBX. Skip the native Assimp import and the
-                 * scene -> BOBJData conversion entirely. */
                 data = cached.data;
                 shapeKeyNames = cached.shapeKeyNames;
 
-                /* The geometry cache hit above says nothing about whether the PNGs extracted from
-                 * this .fbx last time are still on disk - e.g. someone deleted
-                 * "textures/<material>/default.png" by hand. Check cheaply, and only pay for an
-                 * actual reimport (still skipping BOBJData conversion + shape key collection,
-                 * since those are already cached) if something's actually missing. */
-                ensureTexturesPresent(bytes, cached.texturedMaterials, models, model);
+                boolean texturesReextracted = ensureTexturesPresent(bytes, cached.texturedMaterials, models, model);
+
+                /* FIX: If we had to re-extract textures, the model environment changed
+                 * (user deleted textures folder). Invalidate the cache so the next load
+                 * rebuilds BOBJData from scratch rather than reusing potentially stale
+                 * geometry that was baked against the old texture set. */
+                if (texturesReextracted)
+                {
+                    FBXModelLoadCache.invalidate(fbxLink.path);
+                }
             }
             else
             {
@@ -216,11 +216,11 @@ public class FBXModelLoader implements IModelLoader
      * stay served from the cache either way. A no-op (cheap, no I/O beyond the checks) in the
      * common case where nothing's been deleted.
      */
-    private static void ensureTexturesPresent(byte[] bytes, Set<String> texturedMaterials, ModelManager models, Link model)
+    private static boolean ensureTexturesPresent(byte[] bytes, Set<String> texturedMaterials, ModelManager models, Link model)
     {
         if (texturedMaterials == null || texturedMaterials.isEmpty())
         {
-            return;
+            return false;  // ← nothing was re-extracted
         }
 
         boolean missing = false;
@@ -239,7 +239,7 @@ public class FBXModelLoader implements IModelLoader
 
         if (!missing)
         {
-            return;
+            return false;  // ← nothing was re-extracted
         }
 
         AIScene scene = null;
@@ -260,6 +260,8 @@ public class FBXModelLoader implements IModelLoader
                 Assimp.aiReleaseImport(scene);
             }
         }
+
+        return true;  // ← YES, we re-extracted textures
     }
 
     private static Set<String> collectShapeKeyNames(AIScene scene)

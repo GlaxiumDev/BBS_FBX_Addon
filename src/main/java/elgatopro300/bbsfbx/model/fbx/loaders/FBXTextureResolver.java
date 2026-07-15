@@ -86,18 +86,26 @@ public final class FBXTextureResolver
         {
             String material = mesh.mesh.name;
 
-            if (material == null || material.isEmpty() || !registeredMaterials.add(material))
+            /* DEFENSIVE: If the cached BOBJData was corrupted (the bug we're fixing),
+             * mesh names may be null or empty. Log it so the user knows the cache
+             * is returning stale data. */
+            if (material == null || material.isEmpty())
             {
+                System.err.println("[BBS FBX] WARNING: Mesh has null/empty material name! "
+                        + "This usually means FBXModelLoadCache returned stale BOBJData. "
+                        + "Press F6 to clear the cache.");
                 continue;
+            }
+
+            if (!registeredMaterials.add(material))
+            {
+                continue; // duplicate material name, skip
             }
 
             modelInstance.materials.add(material);
 
             Link materialTexture = IModelLoader.findMaterialTexture(links, model, material);
 
-            /* No texture folder/file: if the FBX material carried a flat
-             * color, resolve it to a synthetic color Link straight from the
-             * FBX (no PNG written to disk). */
             if (materialTexture == null && mesh.mesh instanceof FBXMesh fbx && fbx.color != null)
             {
                 materialTexture = LinkUtils.color(fbx.color[0], fbx.color[1], fbx.color[2]);
