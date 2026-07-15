@@ -159,8 +159,8 @@ public class FBXConverter
      * folders. Thin wrapper kept here so {@code FBXModelLoader} doesn't need
      * to depend on the {@code convert} sub-package directly.
      */
-    public static void extractEmbeddedTextures(AIScene scene, AssetProvider provider, Link model)
+    public static Set<String> extractEmbeddedTextures(AIScene scene, AssetProvider provider, Link model)
     {
-        FBXTextureExtractor.extract(scene, provider, model);
+        return FBXTextureExtractor.extract(scene, provider, model);
     }
 }
