@@ -2,6 +2,7 @@ package elgatopro300.bbsfbx.model.fbx.loaders;
 
 import elgatopro300.bbsfbx.model.fbx.FBXShapeKeyModel;
 import elgatopro300.bbsfbx.model.fbx.FBXShapeKeyNames;
+import elgatopro300.bbsfbx.model.fbx.convert.FBXTextureExtractor;
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJLoader.BOBJData;
 import mchorse.bbs_mod.bobj.BOBJLoader.BOBJMesh;
@@ -20,6 +21,7 @@ import org.lwjgl.PointerBuffer;
 import org.lwjgl.assimp.AIAnimMesh;
 import org.lwjgl.assimp.AIMesh;
 
+import java.io.File;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -88,10 +90,18 @@ public class FBXModelLoader implements IModelLoader
                  * scene -> BOBJData conversion entirely. */
                 data = cached.data;
                 shapeKeyNames = cached.shapeKeyNames;
+
+                /* The geometry cache hit above says nothing about whether the PNGs extracted from
+                 * this .fbx last time are still on disk - e.g. someone deleted
+                 * "textures/<material>/default.png" by hand. Check cheaply, and only pay for an
+                 * actual reimport (still skipping BOBJData conversion + shape key collection,
+                 * since those are already cached) if something's actually missing. */
+                ensureTexturesPresent(bytes, cached.texturedMaterials, models, model);
             }
             else
             {
                 AIScene scene = null;
+                Set<String> texturedMaterials;
 
                 try
                 {
@@ -104,7 +114,7 @@ public class FBXModelLoader implements IModelLoader
 
                     shapeKeyNames = collectShapeKeyNames(scene);
                     data = FBXConverter.convert(scene);
-                    FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
+                    texturedMaterials = FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
                 }
                 finally
                 {
@@ -114,7 +124,7 @@ public class FBXModelLoader implements IModelLoader
                     }
                 }
 
-                FBXModelLoadCache.put(fbxLink.path, contentHash, data, shapeKeyNames);
+                FBXModelLoadCache.put(fbxLink.path, contentHash, data, shapeKeyNames, texturedMaterials);
             }
 
             data.initiateArmatures();
@@ -197,6 +207,59 @@ public class FBXModelLoader implements IModelLoader
         }
 
         return result;
+    }
+
+    /**
+     * Checks that every material this .fbx is known to have an embedded texture for still has its
+     * {@code textures/<material>/default.png} on disk, and if not, re-imports the scene purely to
+     * re-run {@link FBXTextureExtractor} - the geometry conversion and shape key name collection
+     * stay served from the cache either way. A no-op (cheap, no I/O beyond the checks) in the
+     * common case where nothing's been deleted.
+     */
+    private static void ensureTexturesPresent(byte[] bytes, Set<String> texturedMaterials, ModelManager models, Link model)
+    {
+        if (texturedMaterials == null || texturedMaterials.isEmpty())
+        {
+            return;
+        }
+
+        boolean missing = false;
+
+        for (String materialName : texturedMaterials)
+        {
+            File folder = models.provider.getFile(model.combine("textures/" + materialName));
+            File target = folder == null ? null : new File(folder, "default.png");
+
+            if (target == null || !target.exists())
+            {
+                missing = true;
+                break;
+            }
+        }
+
+        if (!missing)
+        {
+            return;
+        }
+
+        AIScene scene = null;
+
+        try
+        {
+            scene = FBXAssimpImporter.importScene(bytes);
+
+            if (scene != null)
+            {
+                FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
+            }
+        }
+        finally
+        {
+            if (scene != null)
+            {
+                Assimp.aiReleaseImport(scene);
+            }
+        }
     }
 
     private static Set<String> collectShapeKeyNames(AIScene scene)
